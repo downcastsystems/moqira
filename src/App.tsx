@@ -1,4 +1,5 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AlignLeft,
   BringToFront,
@@ -20,7 +21,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { openProjectFile, saveProjectFile } from "./lib/mockupsApi";
+import { isTauri, openProjectFile, saveProjectFile } from "./lib/mockupsApi";
 import type { CanvasNode, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
 
 const projectPathKey = "mockups-last-project-path";
@@ -74,9 +75,42 @@ type ContextMenuState = {
   stack: CanvasNode[];
 };
 
+type WireframeContextMenuState = {
+  x: number;
+  y: number;
+  wireframeId: string;
+};
+
 type DragState =
   | { kind: "move"; nodeId: string; startX: number; startY: number; originalX: number; originalY: number }
   | { kind: "resize"; nodeId: string; startX: number; startY: number; originalWidth: number; originalHeight: number };
+
+type PaletteDragState = {
+  kind: ComponentKind;
+  label: string;
+  x: number;
+  y: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+};
+
+type TextEditorState = {
+  nodeId: string;
+  field: "text" | "options";
+  draft: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  multiline: boolean;
+};
+
+function editableTextField(node: CanvasNode): "text" | "options" | null {
+  if (node.kind === "checkboxList" || node.kind === "tabs" || node.kind === "buttonBar") return "options";
+  if (typeof node.text === "string") return "text";
+  return null;
+}
 
 function createId(prefix: string) {
   const random = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
@@ -158,16 +192,29 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<CanvasNode | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [wireframeContextMenu, setWireframeContextMenu] = useState<WireframeContextMenuState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
+  const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ready");
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const suppressNextLibraryClickRef = useRef(false);
+  const attemptedStartupRestoreRef = useRef(false);
 
   const activeWireframe = useMemo(
     () => project.wireframes.find((wireframe) => wireframe.id === project.activeWireframeId) ?? project.wireframes[0],
     [project.activeWireframeId, project.wireframes],
   );
   const selectedNode = activeWireframe?.nodes.find((node) => node.id === selectedId) ?? null;
+
+  const startTitlebarDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, input, textarea, select, a")) return;
+    if (!isTauri()) return;
+    void getCurrentWindow().startDragging();
+  };
 
   useEffect(() => {
     document.documentElement.dataset.theme = project.appearance.colorScheme;
@@ -180,6 +227,38 @@ function App() {
     localStorage.setItem(appFontSizeKey, String(project.appearance.appFontSize));
     localStorage.setItem(accentTitlebarKey, String(project.appearance.accentTitlebar));
   }, [project.appearance]);
+
+  useEffect(() => {
+    if (attemptedStartupRestoreRef.current || !isTauri()) return;
+    attemptedStartupRestoreRef.current = true;
+
+    const rememberedPath = localStorage.getItem(projectPathKey);
+    if (!rememberedPath) return;
+
+    let cancelled = false;
+    setStatus("Opening last project...");
+
+    openProjectFile(rememberedPath)
+      .then((loadedProject) => {
+        if (cancelled) return;
+        setProject(loadedProject);
+        setProjectPath(rememberedPath);
+        setSelectedId(null);
+        setDirty(false);
+        setStatus(`Opened ${loadedProject.name}`);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("Could not reopen last project", error);
+        localStorage.removeItem(projectPathKey);
+        setProjectPath(null);
+        setStatus("Could not reopen last project.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const mutateProject = useCallback((updater: (project: MockupProject) => MockupProject) => {
     setProject((current) => updater(current));
@@ -214,6 +293,47 @@ function App() {
       }));
     },
     [mutateActiveWireframe],
+  );
+
+  const beginTextEdit = useCallback((node: CanvasNode) => {
+    const field = editableTextField(node);
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    if (!field || !canvasRect) return;
+
+    const multiline = node.kind === "stickyNote" || field === "options";
+    const nodeViewportX = canvasRect.left + node.x;
+    const nodeViewportY = canvasRect.top + node.y;
+    const width = Math.max(multiline ? 420 : 360, node.width + 220);
+    const height = multiline ? Math.max(170, node.height + 82) : 68;
+    const maxX = Math.max(12, window.innerWidth - width - 12);
+    const maxY = Math.max(12, window.innerHeight - height - 12);
+
+    setSelectedId(node.id);
+    setTextEditor({
+      nodeId: node.id,
+      field,
+      draft: field === "options" ? (node.options ?? []).join("\n") : node.text ?? "",
+      x: clamp(nodeViewportX - 12, 12, maxX),
+      y: clamp(nodeViewportY + Math.min(24, node.height), 12, maxY),
+      width,
+      height,
+      multiline,
+    });
+  }, []);
+
+  const closeTextEditor = useCallback(
+    (commit: boolean) => {
+      if (!textEditor) return;
+      if (commit) {
+        const patch =
+          textEditor.field === "options"
+            ? { options: textEditor.draft.split("\n") }
+            : { text: textEditor.draft };
+        updateNode(textEditor.nodeId, patch);
+      }
+      setTextEditor(null);
+    },
+    [textEditor, updateNode],
   );
 
   const deleteNode = useCallback(
@@ -271,6 +391,11 @@ function App() {
     },
     [mutateActiveWireframe],
   );
+
+  const selectWireframe = useCallback((wireframeId: string) => {
+    setProject((current) => (current.activeWireframeId === wireframeId ? current : { ...current, activeWireframeId: wireframeId }));
+    setSelectedId(null);
+  }, []);
 
   const saveProject = useCallback(
     async (saveAs = false) => {
@@ -335,6 +460,36 @@ function App() {
   }, [dragState, updateNode]);
 
   useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      if (!paletteDrag) return;
+      const moved = paletteDrag.moved || Math.hypot(event.clientX - paletteDrag.startX, event.clientY - paletteDrag.startY) > 4;
+      setPaletteDrag({ ...paletteDrag, x: event.clientX, y: event.clientY, moved });
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (!paletteDrag) return;
+      const rect = canvasRef.current?.getBoundingClientRect();
+      const droppedOnCanvas =
+        rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      if (paletteDrag.moved) {
+        suppressNextLibraryClickRef.current = true;
+        if (droppedOnCanvas && rect) {
+          addNode(paletteDrag.kind, event.clientX - rect.left, event.clientY - rect.top);
+        }
+      }
+      setPaletteDrag(null);
+      window.setTimeout(() => {
+        suppressNextLibraryClickRef.current = false;
+      }, 0);
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [addNode, paletteDrag]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const modifier = event.metaKey || event.ctrlKey;
       if (modifier && event.key.toLowerCase() === "s") {
@@ -360,6 +515,11 @@ function App() {
         deleteNode();
       }
       if (event.key === "Escape") {
+        if (textEditor) {
+          event.preventDefault();
+          closeTextEditor(false);
+          return;
+        }
         setContextMenu(null);
         setSelectedId(null);
       }
@@ -378,7 +538,7 @@ function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeWireframe?.nodes, copyNode, cutNode, deleteNode, pasteNode, saveProject, selectedId, updateNode]);
+  }, [activeWireframe?.nodes, closeTextEditor, copyNode, cutNode, deleteNode, pasteNode, saveProject, selectedId, textEditor, updateNode]);
 
   const addWireframe = () => {
     const id = createId("wireframe");
@@ -390,8 +550,9 @@ function App() {
     setSelectedId(null);
   };
 
-  const duplicateWireframe = () => {
-    if (!activeWireframe) return;
+  const duplicateWireframe = (wireframeId = activeWireframe?.id) => {
+    const sourceWireframe = project.wireframes.find((wireframe) => wireframe.id === wireframeId);
+    if (!sourceWireframe) return;
     const id = createId("wireframe");
     mutateProject((current) => ({
       ...current,
@@ -400,24 +561,25 @@ function App() {
         ...current.wireframes,
         {
           id,
-          name: `${activeWireframe.name} copy`,
-          nodes: activeWireframe.nodes.map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
+          name: `${sourceWireframe.name} copy`,
+          nodes: sourceWireframe.nodes.map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
         },
       ],
     }));
     setSelectedId(null);
   };
 
-  const deleteWireframe = () => {
-    if (!activeWireframe || project.wireframes.length === 1) return;
+  const deleteWireframe = (wireframeId = activeWireframe?.id) => {
+    if (!wireframeId || project.wireframes.length === 1) return;
     mutateProject((current) => {
-      const nextWireframes = current.wireframes.filter((wireframe) => wireframe.id !== activeWireframe.id);
-      return { ...current, wireframes: nextWireframes, activeWireframeId: nextWireframes[0].id };
+      const nextWireframes = current.wireframes.filter((wireframe) => wireframe.id !== wireframeId);
+      const activeWireframeId = current.activeWireframeId === wireframeId ? nextWireframes[0].id : current.activeWireframeId;
+      return { ...current, wireframes: nextWireframes, activeWireframeId };
     });
     setSelectedId(null);
   };
 
-  const canvasPointFromEvent = (event: React.DragEvent | React.MouseEvent) => {
+  const canvasPointFromEvent = (event: { clientX: number; clientY: number }) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     return {
       x: Math.round(event.clientX - (rect?.left ?? 0)),
@@ -436,13 +598,27 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className={project.appearance.accentTitlebar ? "app-titlebar is-accented" : "app-titlebar"}>
+      <header
+        className={project.appearance.accentTitlebar ? "app-titlebar is-accented" : "app-titlebar"}
+        data-tauri-drag-region
+        onPointerDown={startTitlebarDrag}
+      >
         <div className="project-title">
           <span>{project.name}</span>
           {dirty ? <strong>Edited</strong> : null}
         </div>
         <div className="titlebar-actions">
-          <button type="button" onClick={() => setProject(createDefaultProject())} title="New project">
+          <button
+            type="button"
+            onClick={() => {
+              setProject(createDefaultProject());
+              setProjectPath(null);
+              setSelectedId(null);
+              setDirty(false);
+              localStorage.removeItem(projectPathKey);
+            }}
+            title="New project"
+          >
             <FilePlus2 size={16} />
           </button>
           <button type="button" onClick={openProject} title="Open project">
@@ -468,9 +644,12 @@ function App() {
                 key={wireframe.id}
                 type="button"
                 className={wireframe.id === activeWireframe?.id ? "wireframe-row is-active" : "wireframe-row"}
-                onClick={() => {
-                  mutateProject((current) => ({ ...current, activeWireframeId: wireframe.id }));
-                  setSelectedId(null);
+                onClick={() => selectWireframe(wireframe.id)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  selectWireframe(wireframe.id);
+                  setWireframeContextMenu({ x: event.clientX, y: event.clientY, wireframeId: wireframe.id });
                 }}
               >
                 <span>{wireframe.name}</span>
@@ -479,8 +658,8 @@ function App() {
             ))}
           </div>
           <div className="wireframe-actions">
-            <button type="button" onClick={duplicateWireframe}>Duplicate</button>
-            <button type="button" onClick={deleteWireframe} disabled={project.wireframes.length === 1}>Delete</button>
+            <button type="button" onClick={() => duplicateWireframe()}>Duplicate</button>
+            <button type="button" onClick={() => deleteWireframe()} disabled={project.wireframes.length === 1}>Delete</button>
           </div>
         </aside>
 
@@ -493,9 +672,22 @@ function App() {
                   key={definition.kind}
                   type="button"
                   className="library-item"
-                  draggable
-                  onClick={() => addNode(definition.kind)}
-                  onDragStart={(event) => event.dataTransfer.setData("application/x-component-kind", definition.kind)}
+                  onClick={() => {
+                    if (suppressNextLibraryClickRef.current) return;
+                    addNode(definition.kind);
+                  }}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    setPaletteDrag({
+                      kind: definition.kind,
+                      label: definition.label,
+                      x: event.clientX,
+                      y: event.clientY,
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      moved: false,
+                    });
+                  }}
                 >
                   <Icon size={26} />
                   <span>{definition.label}</span>
@@ -511,16 +703,9 @@ function App() {
               onClick={(event) => {
                 if (event.target === event.currentTarget) setSelectedId(null);
                 setContextMenu(null);
+                setTextEditor(null);
               }}
               onContextMenu={openCanvasContextMenu}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                const kind = event.dataTransfer.getData("application/x-component-kind") as ComponentKind;
-                if (!kind) return;
-                const point = canvasPointFromEvent(event);
-                addNode(kind, point.x, point.y);
-              }}
             >
               {activeWireframe?.nodes.map((node) => (
                 <CanvasItem
@@ -528,6 +713,7 @@ function App() {
                   node={node}
                   selected={node.id === selectedId}
                   onSelect={() => setSelectedId(node.id)}
+                  onTextEdit={() => beginTextEdit(node)}
                   onUpdate={(patch) => updateNode(node.id, patch)}
                   onMoveStart={(event) => {
                     if (node.locked) return;
@@ -586,6 +772,28 @@ function App() {
           onLayer={(action) => layerNode(contextMenu.targetId, action)}
         />
       ) : null}
+      {wireframeContextMenu ? (
+        <WireframeContextMenu
+          state={wireframeContextMenu}
+          canDelete={project.wireframes.length > 1}
+          onClose={() => setWireframeContextMenu(null)}
+          onDuplicate={() => duplicateWireframe(wireframeContextMenu.wireframeId)}
+          onDelete={() => deleteWireframe(wireframeContextMenu.wireframeId)}
+        />
+      ) : null}
+      {paletteDrag?.moved ? (
+        <div className="palette-drag-preview" style={{ left: paletteDrag.x, top: paletteDrag.y }}>
+          {paletteDrag.label}
+        </div>
+      ) : null}
+      {textEditor ? (
+        <FloatingTextEditor
+          editor={textEditor}
+          onChange={(draft) => setTextEditor((current) => (current ? { ...current, draft } : current))}
+          onCommit={() => closeTextEditor(true)}
+          onCancel={() => closeTextEditor(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -595,6 +803,7 @@ function CanvasItem({
   selected,
   onSelect,
   onUpdate,
+  onTextEdit,
   onMoveStart,
   onResizeStart,
 }: {
@@ -602,6 +811,7 @@ function CanvasItem({
   selected: boolean;
   onSelect: () => void;
   onUpdate: (patch: Partial<CanvasNode>) => void;
+  onTextEdit: () => void;
   onMoveStart: (event: React.PointerEvent) => void;
   onResizeStart: (event: React.PointerEvent) => void;
 }) {
@@ -625,9 +835,24 @@ function CanvasItem({
         event.stopPropagation();
         onSelect();
       }}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        onTextEdit();
+      }}
     >
       <NodeContent node={node} onUpdate={onUpdate} />
-      {selected ? <span className="resize-handle" onPointerDown={onResizeStart} /> : null}
+      {selected ? (
+        <>
+          <span className="selection-handle handle-nw" />
+          <span className="selection-handle handle-n" />
+          <span className="selection-handle handle-ne" />
+          <span className="selection-handle handle-e" />
+          <span className="selection-handle handle-se" onPointerDown={onResizeStart} />
+          <span className="selection-handle handle-s" />
+          <span className="selection-handle handle-sw" />
+          <span className="selection-handle handle-w" />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -670,14 +895,7 @@ function NodeContent({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: P
     return <Icon className="icon-node" size={Math.min(node.width, node.height) - 14} />;
   }
   if (node.kind === "text" || node.kind === "stickyNote") {
-    return (
-      <textarea
-        className="editable-node-text"
-        value={node.text ?? ""}
-        onPointerDown={(event) => event.stopPropagation()}
-        onChange={(event) => onUpdate({ text: event.target.value })}
-      />
-    );
+    return <div className="editable-node-text">{node.text}</div>;
   }
   return null;
 }
@@ -690,6 +908,55 @@ function Segmented({ items, activeIndex, compact = false }: { items: string[]; a
           {item}
         </span>
       ))}
+    </div>
+  );
+}
+
+function FloatingTextEditor({
+  editor,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  editor: TextEditorState;
+  onChange: (draft: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.select();
+  }, [editor.nodeId, editor.field]);
+
+  return (
+    <div
+      className={editor.multiline ? "floating-text-editor is-multiline" : "floating-text-editor"}
+      style={{ left: editor.x, top: editor.y, width: editor.width, minHeight: editor.height }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <textarea
+        ref={textareaRef}
+        value={editor.draft}
+        rows={editor.multiline ? 6 : 1}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            onCommit();
+          }
+        }}
+      />
+      <span className="floating-text-count">{editor.draft.length}</span>
     </div>
   );
 }
@@ -888,6 +1155,46 @@ function ContextMenu({
         {item("Bring to Front", () => onLayer("front"), disabled)}
         {item("Send Backward", () => onLayer("backward"), disabled)}
         {item("Send to Back", () => onLayer("back"), disabled)}
+      </div>
+    </div>
+  );
+}
+
+function WireframeContextMenu({
+  state,
+  canDelete,
+  onClose,
+  onDuplicate,
+  onDelete,
+}: {
+  state: WireframeContextMenuState;
+  canDelete: boolean;
+  onClose: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="context-scrim" onClick={onClose}>
+      <div className="context-menu" style={{ left: state.x, top: state.y }} onClick={(event) => event.stopPropagation()}>
+        <button
+          type="button"
+          onClick={() => {
+            onDuplicate();
+            onClose();
+          }}
+        >
+          Duplicate Wireframe
+        </button>
+        <button
+          type="button"
+          disabled={!canDelete}
+          onClick={() => {
+            onDelete();
+            onClose();
+          }}
+        >
+          Delete Wireframe
+        </button>
       </div>
     </div>
   );
