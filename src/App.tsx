@@ -1,4 +1,5 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AlignLeft,
@@ -14,22 +15,33 @@ import {
   Plus,
   Save,
   SendToBack,
+  Settings,
   Square,
   StickyNote,
   Trash2,
   Type,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isTauri, openProjectFile, saveProjectFile } from "./lib/mockupsApi";
+import { isTauri, openProjectFile, readLastProjectPath, saveProjectFile, syncRecentProjects, writeLastProjectPath } from "./lib/mockupsApi";
 import type { CanvasNode, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
 
-const projectPathKey = "mockups-last-project-path";
-const themeKey = "mockups-theme";
-const accentKey = "mockups-accent";
-const appFontSizeKey = "mockups-app-font-size";
-const appFontFamilyKey = "mockups-app-font-family";
-const accentTitlebarKey = "mockups-accent-titlebar";
+const projectPathKey = "moqira-last-project-path";
+const themeKey = "moqira-theme";
+const accentKey = "moqira-accent";
+const appFontSizeKey = "moqira-app-font-size";
+const appFontFamilyKey = "moqira-app-font-family";
+const accentTitlebarKey = "moqira-accent-titlebar";
+const recentProjectsKey = "moqira-recent-projects";
+const legacyProjectPathKey = "mockups-last-project-path";
+const legacyThemeKey = "mockups-theme";
+const legacyAccentKey = "mockups-accent";
+const legacyAppFontSizeKey = "mockups-app-font-size";
+const legacyAppFontFamilyKey = "mockups-app-font-family";
+const legacyAccentTitlebarKey = "mockups-accent-titlebar";
+const legacyRecentProjectsKey = "mockups-recent-projects";
+const maxRecentProjects = 8;
 
 const iconMap: Record<string, LucideIcon> = {
   rectangle: Square,
@@ -106,10 +118,60 @@ type TextEditorState = {
   multiline: boolean;
 };
 
+type RecentProject = {
+  path: string;
+  name: string;
+  openedAt: number;
+};
+
 function editableTextField(node: CanvasNode): "text" | "options" | null {
   if (node.kind === "checkboxList" || node.kind === "tabs" || node.kind === "buttonBar") return "options";
   if (typeof node.text === "string") return "text";
   return null;
+}
+
+const FILENAME_SLASH = "／";
+const FILENAME_LEADING_DOT = "．";
+const FILENAME_HASH = "＃";
+const FILENAME_PERCENT = "％";
+
+function encodeTitleForFilename(title: string): string {
+  return title
+    .replace(/\//g, FILENAME_SLASH)
+    .replace(/#/g, FILENAME_HASH)
+    .replace(/%/g, FILENAME_PERCENT)
+    .replace(/^\.+/, (dots) => FILENAME_LEADING_DOT.repeat(dots.length));
+}
+
+function decodeTitleFromFilename(name: string): string {
+  return name.replace(/／/g, "/").replace(/．/g, ".").replace(/＃/g, "#").replace(/％/g, "%");
+}
+
+function readStoredValue(key: string, legacyKey: string) {
+  const value = localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
+  if (value !== null && !localStorage.getItem(key)) localStorage.setItem(key, value);
+  return value;
+}
+
+function readRecentProjects(): RecentProject[] {
+  try {
+    const raw = readStoredValue(recentProjectsKey, legacyRecentProjectsKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as RecentProject[];
+    return Array.isArray(parsed) ? parsed.filter((item) => item.path && item.name) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentProjects(projects: RecentProject[]) {
+  localStorage.setItem(recentProjectsKey, JSON.stringify(projects.slice(0, maxRecentProjects)));
+}
+
+function addRecentProject(projects: RecentProject[], path: string, name: string): RecentProject[] {
+  const next = [{ path, name, openedAt: Date.now() }, ...projects.filter((project) => project.path !== path)];
+  writeRecentProjects(next);
+  return next.slice(0, maxRecentProjects);
 }
 
 function createId(prefix: string) {
@@ -138,6 +200,10 @@ function createDefaultProject(): MockupProject {
       },
     ],
   };
+}
+
+function defaultAppearance(): MockupProject["appearance"] {
+  return createDefaultProject().appearance;
 }
 
 function createNode(kind: ComponentKind, x: number, y: number): CanvasNode {
@@ -178,16 +244,31 @@ function moveNodeLayer(nodes: CanvasNode[], id: string, action: "front" | "back"
   return next;
 }
 
+function fileNameFromPath(path: string) {
+  return path.split(/[\\/]/).at(-1) ?? path;
+}
+
+function projectNameFromPath(path: string) {
+  return decodeTitleFromFilename(fileNameFromPath(path).replace(/\.(moqira|dsmockup|json)$/i, "")) || "Untitled Project";
+}
+
+function defaultSaveFileName(project: MockupProject, projectPath: string | null) {
+  if (projectPath) return fileNameFromPath(projectPath);
+  const baseName = project.name.trim() && project.name !== "New Project" ? project.name.trim() : "Untitled Project";
+  return `${encodeTitleForFilename(baseName)}.moqira`;
+}
+
 function App() {
-  const [projectPath, setProjectPath] = useState<string | null>(() => localStorage.getItem(projectPathKey));
-  const [project, setProject] = useState<MockupProject>(() => {
-    const project = createDefaultProject();
-    project.appearance.colorScheme = (localStorage.getItem(themeKey) as MockupProject["appearance"]["colorScheme"]) || project.appearance.colorScheme;
-    project.appearance.accentColor = localStorage.getItem(accentKey) || project.appearance.accentColor;
-    project.appearance.appFontFamily = localStorage.getItem(appFontFamilyKey) || project.appearance.appFontFamily;
-    project.appearance.appFontSize = Number(localStorage.getItem(appFontSizeKey)) || project.appearance.appFontSize;
-    project.appearance.accentTitlebar = localStorage.getItem(accentTitlebarKey) === "true";
-    return project;
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [project, setProject] = useState<MockupProject>(() => createDefaultProject());
+  const [appAppearance, setAppAppearance] = useState<MockupProject["appearance"]>(() => {
+    const appearance = defaultAppearance();
+    appearance.colorScheme = (readStoredValue(themeKey, legacyThemeKey) as MockupProject["appearance"]["colorScheme"]) || appearance.colorScheme;
+    appearance.accentColor = readStoredValue(accentKey, legacyAccentKey) || appearance.accentColor;
+    appearance.appFontFamily = readStoredValue(appFontFamilyKey, legacyAppFontFamilyKey) || appearance.appFontFamily;
+    appearance.appFontSize = Number(readStoredValue(appFontSizeKey, legacyAppFontSizeKey)) || appearance.appFontSize;
+    appearance.accentTitlebar = readStoredValue(accentTitlebarKey, legacyAccentTitlebarKey) === "true";
+    return appearance;
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<CanvasNode | null>(null);
@@ -198,9 +279,17 @@ function App() {
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ready");
+  const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [closePromptOpen, setClosePromptOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => readRecentProjects());
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const suppressNextLibraryClickRef = useRef(false);
   const attemptedStartupRestoreRef = useRef(false);
+
+  useEffect(() => {
+    void syncRecentProjects(recentProjects);
+  }, [recentProjects]);
 
   const activeWireframe = useMemo(
     () => project.wireframes.find((wireframe) => wireframe.id === project.activeWireframeId) ?? project.wireframes[0],
@@ -217,40 +306,58 @@ function App() {
   };
 
   useEffect(() => {
-    document.documentElement.dataset.theme = project.appearance.colorScheme;
-    document.documentElement.style.setProperty("--accent", project.appearance.accentColor);
-    document.documentElement.style.setProperty("--app-font-family", project.appearance.appFontFamily);
-    document.documentElement.style.setProperty("--app-font-size", `${project.appearance.appFontSize}px`);
-    localStorage.setItem(themeKey, project.appearance.colorScheme);
-    localStorage.setItem(accentKey, project.appearance.accentColor);
-    localStorage.setItem(appFontFamilyKey, project.appearance.appFontFamily);
-    localStorage.setItem(appFontSizeKey, String(project.appearance.appFontSize));
-    localStorage.setItem(accentTitlebarKey, String(project.appearance.accentTitlebar));
-  }, [project.appearance]);
+    document.documentElement.dataset.theme = appAppearance.colorScheme;
+    document.documentElement.style.setProperty("--accent", appAppearance.accentColor);
+    document.documentElement.style.setProperty("--app-font-family", appAppearance.appFontFamily);
+    document.documentElement.style.setProperty("--app-font-size", `${appAppearance.appFontSize}px`);
+    localStorage.setItem(themeKey, appAppearance.colorScheme);
+    localStorage.setItem(accentKey, appAppearance.accentColor);
+    localStorage.setItem(appFontFamilyKey, appAppearance.appFontFamily);
+    localStorage.setItem(appFontSizeKey, String(appAppearance.appFontSize));
+    localStorage.setItem(accentTitlebarKey, String(appAppearance.accentTitlebar));
+  }, [appAppearance]);
+
+  useEffect(() => {
+    if (!saveToast) return;
+    const timeout = window.setTimeout(() => setSaveToast(null), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [saveToast]);
 
   useEffect(() => {
     if (attemptedStartupRestoreRef.current || !isTauri()) return;
     attemptedStartupRestoreRef.current = true;
 
-    const rememberedPath = localStorage.getItem(projectPathKey);
-    if (!rememberedPath) return;
-
     let cancelled = false;
-    setStatus("Opening last project...");
 
-    openProjectFile(rememberedPath)
+    Promise.resolve(readStoredValue(projectPathKey, legacyProjectPathKey))
+      .then((localPath) => localPath || readLastProjectPath())
+      .then((rememberedPath) => {
+        if (!rememberedPath) return null;
+        return openProjectFile(rememberedPath).then((loadedProject) => ({ rememberedPath, loadedProject }));
+      })
       .then((loadedProject) => {
-        if (cancelled) return;
-        setProject(loadedProject);
-        setProjectPath(rememberedPath);
+        if (cancelled || !loadedProject) {
+          if (!cancelled) {
+            setStatus("Ready");
+          }
+          return;
+        }
+        const projectName = projectNameFromPath(loadedProject.rememberedPath);
+        const restoredProject = { ...loadedProject.loadedProject, name: projectName };
+        setProject(restoredProject);
+        setProjectPath(loadedProject.rememberedPath);
         setSelectedId(null);
         setDirty(false);
-        setStatus(`Opened ${loadedProject.name}`);
+        localStorage.setItem(projectPathKey, loadedProject.rememberedPath);
+        void writeLastProjectPath(loadedProject.rememberedPath);
+        setRecentProjects((current) => addRecentProject(current, loadedProject.rememberedPath, projectName));
+        setStatus(`Opened ${projectName}`);
       })
       .catch((error) => {
         if (cancelled) return;
         console.warn("Could not reopen last project", error);
         localStorage.removeItem(projectPathKey);
+        void writeLastProjectPath(null);
         setProjectPath(null);
         setStatus("Could not reopen last project.");
       });
@@ -397,42 +504,136 @@ function App() {
     setSelectedId(null);
   }, []);
 
+  const confirmLosingUnsavedChanges = useCallback(() => {
+    if (!dirty) return true;
+    return window.confirm("This project has unsaved changes. Continue without saving them?");
+  }, [dirty]);
+
   const saveProject = useCallback(
-    async (saveAs = false) => {
-      let nextPath = projectPath;
+    async (saveAs = false): Promise<boolean> => {
+      let nextPath = saveAs ? null : projectPath;
       if (!nextPath || saveAs) {
         const chosen = await saveDialog({
-          title: "Save Mockups Project",
-          defaultPath: `${project.name || "New Project"}.dsmockup`,
-          filters: [{ name: "Mockups Project", extensions: ["dsmockup", "json"] }],
+          title: "Save Moqira Project",
+          defaultPath: defaultSaveFileName(project, saveAs ? null : projectPath),
+          filters: [{ name: "Moqira Project", extensions: ["moqira", "dsmockup", "json"] }],
         });
-        if (!chosen) return;
+        if (!chosen) {
+          setStatus(saveAs ? "Save As canceled." : "Save canceled.");
+          return false;
+        }
         nextPath = chosen;
       }
-      await saveProjectFile(nextPath, project);
+      const projectToSave = { ...project, name: projectNameFromPath(nextPath) };
+      await saveProjectFile(nextPath, projectToSave);
+      setProject(projectToSave);
       setProjectPath(nextPath);
       localStorage.setItem(projectPathKey, nextPath);
+      await writeLastProjectPath(nextPath);
+      setRecentProjects((current) => addRecentProject(current, nextPath, projectToSave.name));
       setDirty(false);
-      setStatus(`Saved ${project.name}`);
+      setStatus(`Saved to ${nextPath}`);
+      setSaveToast(`Saved ${fileNameFromPath(nextPath)}`);
+      return true;
     },
     [project, projectPath],
   );
 
+  const closeWindow = useCallback(async () => {
+    await getCurrentWindow().destroy();
+  }, []);
+
+  const handleCloseRequest = useCallback(() => {
+    if (dirty) {
+      setClosePromptOpen(true);
+      return;
+    }
+    void closeWindow();
+  }, [closeWindow, dirty]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    listen("mockups-window-close-requested", handleCloseRequest).then((cleanup) => {
+      unlisten = cleanup;
+    });
+    return () => unlisten?.();
+  }, [handleCloseRequest]);
+
   const openProject = useCallback(async () => {
+    if (!confirmLosingUnsavedChanges()) return;
     const chosen = await openDialog({
-      title: "Open Mockups Project",
+      title: "Open Moqira Project",
       multiple: false,
-      filters: [{ name: "Mockups Project", extensions: ["dsmockup", "json"] }],
+      filters: [{ name: "Moqira Project", extensions: ["moqira", "dsmockup", "json"] }],
     });
     if (!chosen || Array.isArray(chosen)) return;
     const loaded = await openProjectFile(chosen);
-    setProject(loaded);
+    const projectName = projectNameFromPath(chosen);
+    setProject({ ...loaded, name: projectName });
     setProjectPath(chosen);
     localStorage.setItem(projectPathKey, chosen);
+    await writeLastProjectPath(chosen);
+    setRecentProjects((current) => addRecentProject(current, chosen, projectName));
     setSelectedId(null);
     setDirty(false);
-    setStatus(`Opened ${loaded.name}`);
-  }, []);
+    setStatus(`Opened ${projectName}`);
+  }, [confirmLosingUnsavedChanges]);
+
+  const openRecentProject = useCallback(
+    async (path: string) => {
+      if (!confirmLosingUnsavedChanges()) return;
+      try {
+        const loaded = await openProjectFile(path);
+        const projectName = projectNameFromPath(path);
+        setProject({ ...loaded, name: projectName });
+        setProjectPath(path);
+        localStorage.setItem(projectPathKey, path);
+        await writeLastProjectPath(path);
+        setRecentProjects((current) => addRecentProject(current, path, projectName));
+        setSelectedId(null);
+        setDirty(false);
+        setStatus(`Opened ${projectName}`);
+      } catch (error) {
+        console.warn("Could not open recent project", error);
+        setRecentProjects((current) => {
+          const next = current.filter((project) => project.path !== path);
+          writeRecentProjects(next);
+          return next;
+        });
+        setStatus(`Could not open ${fileNameFromPath(path)}`);
+      }
+    },
+    [confirmLosingUnsavedChanges],
+  );
+
+  const newProject = useCallback(() => {
+    if (!confirmLosingUnsavedChanges()) return;
+    setProject(createDefaultProject());
+    setProjectPath(null);
+    setSelectedId(null);
+    setDirty(false);
+    setStatus("Created new project");
+  }, [confirmLosingUnsavedChanges]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const cleanups: Array<() => void> = [];
+
+    void listen("menu-new-project", () => newProject()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-open-project", () => void openProject()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-save-project", () => void saveProject(false)).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-save-project-as", () => void saveProject(true)).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-open-settings", () => {
+      setSelectedId(null);
+      setSettingsOpen(true);
+    }).then((cleanup) => cleanups.push(cleanup));
+    void listen<string>("menu-open-recent-project", (event) => void openRecentProject(event.payload)).then((cleanup) => cleanups.push(cleanup));
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [newProject, openProject, openRecentProject, saveProject]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -596,27 +797,28 @@ function App() {
     setContextMenu({ x: event.clientX, y: event.clientY, canvasX: point.x, canvasY: point.y, targetId, stack });
   };
 
+  const contextTargetName = contextMenu?.targetId
+    ? activeWireframe?.nodes.find((node) => node.id === contextMenu.targetId)?.name ?? "Object"
+    : "Canvas";
+  const projectDisplayName = projectPath ? projectNameFromPath(projectPath) : "Unsaved Project";
+
   return (
     <div className="app-shell">
       <header
-        className={project.appearance.accentTitlebar ? "app-titlebar is-accented" : "app-titlebar"}
+        className={appAppearance.accentTitlebar ? "app-titlebar is-accented" : "app-titlebar"}
         data-tauri-drag-region
         onPointerDown={startTitlebarDrag}
       >
         <div className="project-title">
-          <span>{project.name}</span>
-          {dirty ? <strong>Edited</strong> : null}
+          <span>{projectDisplayName}</span>
+          <strong className={dirty ? "save-state is-dirty" : "save-state"}>
+            {dirty ? "Unsaved changes" : projectPath ? "Saved" : "Not saved"}
+          </strong>
         </div>
         <div className="titlebar-actions">
           <button
             type="button"
-            onClick={() => {
-              setProject(createDefaultProject());
-              setProjectPath(null);
-              setSelectedId(null);
-              setDirty(false);
-              localStorage.removeItem(projectPathKey);
-            }}
+            onClick={newProject}
             title="New project"
           >
             <FilePlus2 size={16} />
@@ -632,6 +834,17 @@ function App() {
 
       <main className="workspace">
         <aside className="left-pane">
+          <button
+            type="button"
+            className="project-properties-row"
+            onClick={() => {
+              setSelectedId(null);
+              setSettingsOpen(true);
+            }}
+          >
+            <Settings size={16} />
+            <span>Settings</span>
+          </button>
           <div className="pane-header">
             <h2>Wireframes</h2>
             <button type="button" onClick={addWireframe} title="Add wireframe">
@@ -741,10 +954,7 @@ function App() {
 
         <aside className="right-pane">
           <PropertiesPane
-            project={project}
             selectedNode={selectedNode}
-            onProjectChange={(patch) => mutateProject((current) => ({ ...current, ...patch }))}
-            onAppearanceChange={(appearance) => mutateProject((current) => ({ ...current, appearance: { ...current.appearance, ...appearance } }))}
             onNodeChange={(patch) => selectedNode && updateNode(selectedNode.id, patch)}
             onLayer={(action) => layerNode(selectedId, action)}
           />
@@ -759,6 +969,7 @@ function App() {
       {contextMenu ? (
         <ContextMenu
           state={contextMenu}
+          targetName={contextTargetName}
           canPaste={Boolean(clipboard)}
           onClose={() => setContextMenu(null)}
           onSelect={(id) => {
@@ -792,6 +1003,30 @@ function App() {
           onChange={(draft) => setTextEditor((current) => (current ? { ...current, draft } : current))}
           onCommit={() => closeTextEditor(true)}
           onCancel={() => closeTextEditor(false)}
+        />
+      ) : null}
+      {saveToast ? <div className="save-toast">{saveToast}</div> : null}
+      {settingsOpen ? (
+        <SettingsDialog
+          appAppearance={appAppearance}
+          onAppearanceChange={(appearance) => setAppAppearance((current) => ({ ...current, ...appearance }))}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+      {closePromptOpen ? (
+        <UnsavedChangesDialog
+          projectName={projectDisplayName}
+          onCancel={() => setClosePromptOpen(false)}
+          onDiscard={() => {
+            setClosePromptOpen(false);
+            void closeWindow();
+          }}
+          onSave={async () => {
+            const saved = await saveProject(false);
+            if (!saved) return;
+            setClosePromptOpen(false);
+            await closeWindow();
+          }}
         />
       ) : null}
     </div>
@@ -962,142 +1197,189 @@ function FloatingTextEditor({
 }
 
 function PropertiesPane({
-  project,
   selectedNode,
-  onProjectChange,
-  onAppearanceChange,
   onNodeChange,
   onLayer,
 }: {
-  project: MockupProject;
   selectedNode: CanvasNode | null;
-  onProjectChange: (patch: Partial<MockupProject>) => void;
-  onAppearanceChange: (patch: Partial<MockupProject["appearance"]>) => void;
   onNodeChange: (patch: Partial<CanvasNode>) => void;
   onLayer: (action: "front" | "back" | "forward" | "backward") => void;
 }) {
+  if (!selectedNode) return <div className="properties is-empty" />;
+
   return (
     <div className="properties">
-      <h2>{selectedNode ? selectedNode.name : "Project"}</h2>
-      {!selectedNode ? (
-        <>
-          <label>
-            Project Name
-            <input value={project.name} onChange={(event) => onProjectChange({ name: event.target.value })} />
-          </label>
-          <label>
-            Theme
-            <select value={project.appearance.colorScheme} onChange={(event) => onAppearanceChange({ colorScheme: event.target.value as never })}>
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-          <label>
-            Accent
-            <input type="color" value={project.appearance.accentColor} onChange={(event) => onAppearanceChange({ accentColor: event.target.value })} />
-          </label>
-          <label>
-            App Font Size
-            <input
-              type="number"
-              min={12}
-              max={18}
-              value={project.appearance.appFontSize}
-              onChange={(event) => onAppearanceChange({ appFontSize: Number(event.target.value) })}
-            />
-          </label>
-          <label className="checkbox-setting">
-            <input
-              type="checkbox"
-              checked={project.appearance.accentTitlebar}
-              onChange={(event) => onAppearanceChange({ accentTitlebar: event.target.checked })}
-            />
-            Use accent titlebar
-          </label>
-        </>
-      ) : (
-        <>
-          <div className="property-grid">
-            <label>
-              X
-              <input type="number" value={selectedNode.x} onChange={(event) => onNodeChange({ x: Number(event.target.value) })} />
-            </label>
-            <label>
-              Y
-              <input type="number" value={selectedNode.y} onChange={(event) => onNodeChange({ y: Number(event.target.value) })} />
-            </label>
-            <label>
-              W
-              <input type="number" value={selectedNode.width} onChange={(event) => onNodeChange({ width: Number(event.target.value) })} />
-            </label>
-            <label>
-              H
-              <input type="number" value={selectedNode.height} onChange={(event) => onNodeChange({ height: Number(event.target.value) })} />
-            </label>
+      <h2>{selectedNode.name}</h2>
+      <div className="property-grid">
+        <label>
+          X
+          <input type="number" value={selectedNode.x} onChange={(event) => onNodeChange({ x: Number(event.target.value) })} />
+        </label>
+        <label>
+          Y
+          <input type="number" value={selectedNode.y} onChange={(event) => onNodeChange({ y: Number(event.target.value) })} />
+        </label>
+        <label>
+          W
+          <input type="number" value={selectedNode.width} onChange={(event) => onNodeChange({ width: Number(event.target.value) })} />
+        </label>
+        <label>
+          H
+          <input type="number" value={selectedNode.height} onChange={(event) => onNodeChange({ height: Number(event.target.value) })} />
+        </label>
+      </div>
+      <div className="layer-buttons">
+        <button type="button" onClick={() => onLayer("back")} title="Send to back"><SendToBack size={16} /></button>
+        <button type="button" onClick={() => onLayer("backward")} title="Send backward"><SendToBack size={16} /></button>
+        <button type="button" onClick={() => onLayer("forward")} title="Bring forward"><BringToFront size={16} /></button>
+        <button type="button" onClick={() => onLayer("front")} title="Bring to front"><BringToFront size={16} /></button>
+      </div>
+      <label>
+        Fill
+        <input type="color" value={selectedNode.fill ?? "#ffffff"} onChange={(event) => onNodeChange({ fill: event.target.value })} />
+      </label>
+      <label>
+        Stroke
+        <input type="color" value={selectedNode.stroke ?? "#111827"} onChange={(event) => onNodeChange({ stroke: event.target.value })} />
+      </label>
+      <label>
+        Text Color
+        <input type="color" value={selectedNode.textColor ?? "#111827"} onChange={(event) => onNodeChange({ textColor: event.target.value })} />
+      </label>
+      <label>
+        Font Size
+        <input
+          type="number"
+          min={8}
+          max={72}
+          value={selectedNode.fontSize ?? 14}
+          onChange={(event) => onNodeChange({ fontSize: Number(event.target.value) })}
+        />
+      </label>
+      {"text" in selectedNode ? (
+        <label>
+          Text
+          <textarea value={selectedNode.text ?? ""} onChange={(event) => onNodeChange({ text: event.target.value })} />
+        </label>
+      ) : null}
+      {selectedNode.options ? (
+        <label>
+          Options
+          <textarea value={selectedNode.options.join("\n")} onChange={(event) => onNodeChange({ options: event.target.value.split("\n") })} />
+        </label>
+      ) : null}
+      {selectedNode.kind === "icon" ? (
+        <label>
+          Icon
+          <select value={selectedNode.icon ?? "Plus"} onChange={(event) => onNodeChange({ icon: event.target.value })}>
+            <option value="Plus">Plus</option>
+            <option value="CheckSquare">Check Square</option>
+            <option value="Trash2">Trash</option>
+          </select>
+        </label>
+      ) : null}
+      <label className="checkbox-setting">
+        <input type="checkbox" checked={Boolean(selectedNode.locked)} onChange={(event) => onNodeChange({ locked: event.target.checked })} />
+        Locked
+      </label>
+    </div>
+  );
+}
+
+function SettingsDialog({
+  appAppearance,
+  onAppearanceChange,
+  onClose,
+}: {
+  appAppearance: MockupProject["appearance"];
+  onAppearanceChange: (patch: Partial<MockupProject["appearance"]>) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="modal-scrim" role="presentation" onMouseDown={onClose}>
+      <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
+        <aside className="settings-dialog-sidebar">
+          <div className="settings-dialog-title">
+            <span className="dialog-icon">
+              <Settings size={18} />
+            </span>
+            <div>
+              <h2 id="settings-title">Settings</h2>
+              <p>Moqira preferences</p>
+            </div>
           </div>
-          <div className="layer-buttons">
-            <button type="button" onClick={() => onLayer("back")} title="Send to back"><SendToBack size={16} /></button>
-            <button type="button" onClick={() => onLayer("backward")} title="Send backward"><SendToBack size={16} /></button>
-            <button type="button" onClick={() => onLayer("forward")} title="Bring forward"><BringToFront size={16} /></button>
-            <button type="button" onClick={() => onLayer("front")} title="Bring to front"><BringToFront size={16} /></button>
+          <button className="settings-nav-item is-active" type="button">
+            <Settings size={15} />
+            <span>Appearance</span>
+          </button>
+        </aside>
+        <div className="settings-dialog-content">
+          <div className="settings-dialog-header">
+            <h2>Appearance</h2>
+            <button className="icon-button" type="button" title="Close" onClick={onClose}>
+              <X size={17} />
+            </button>
           </div>
-          <label>
-            Fill
-            <input type="color" value={selectedNode.fill ?? "#ffffff"} onChange={(event) => onNodeChange({ fill: event.target.value })} />
-          </label>
-          <label>
-            Stroke
-            <input type="color" value={selectedNode.stroke ?? "#111827"} onChange={(event) => onNodeChange({ stroke: event.target.value })} />
-          </label>
-          <label>
-            Text Color
-            <input type="color" value={selectedNode.textColor ?? "#111827"} onChange={(event) => onNodeChange({ textColor: event.target.value })} />
-          </label>
-          <label>
-            Font Size
-            <input
-              type="number"
-              min={8}
-              max={72}
-              value={selectedNode.fontSize ?? 14}
-              onChange={(event) => onNodeChange({ fontSize: Number(event.target.value) })}
-            />
-          </label>
-          {"text" in selectedNode ? (
-            <label>
-              Text
-              <textarea value={selectedNode.text ?? ""} onChange={(event) => onNodeChange({ text: event.target.value })} />
-            </label>
-          ) : null}
-          {selectedNode.options ? (
-            <label>
-              Options
-              <textarea value={selectedNode.options.join("\n")} onChange={(event) => onNodeChange({ options: event.target.value.split("\n") })} />
-            </label>
-          ) : null}
-          {selectedNode.kind === "icon" ? (
-            <label>
-              Icon
-              <select value={selectedNode.icon ?? "Plus"} onChange={(event) => onNodeChange({ icon: event.target.value })}>
-                <option value="Plus">Plus</option>
-                <option value="CheckSquare">Check Square</option>
-                <option value="Trash2">Trash</option>
+          <div className="settings-form">
+            <div className="setting-row">
+              <span>
+                <strong>Theme</strong>
+              </span>
+              <select value={appAppearance.colorScheme} onChange={(event) => onAppearanceChange({ colorScheme: event.target.value as never })}>
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
               </select>
-            </label>
-          ) : null}
-          <label className="checkbox-setting">
-            <input type="checkbox" checked={Boolean(selectedNode.locked)} onChange={(event) => onNodeChange({ locked: event.target.checked })} />
-            Locked
-          </label>
-        </>
-      )}
+            </div>
+            <div className="setting-row">
+              <span>
+                <strong>Accent</strong>
+              </span>
+              <input type="color" value={appAppearance.accentColor} onChange={(event) => onAppearanceChange({ accentColor: event.target.value })} />
+            </div>
+            <div className="setting-row">
+              <span>
+                <strong>App font size</strong>
+              </span>
+              <input
+                type="number"
+                min={12}
+                max={18}
+                value={appAppearance.appFontSize}
+                onChange={(event) => onAppearanceChange({ appFontSize: Number(event.target.value) })}
+              />
+            </div>
+            <div className="setting-row">
+              <span>
+                <strong>Accent titlebar</strong>
+              </span>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={appAppearance.accentTitlebar}
+                  onChange={(event) => onAppearanceChange({ accentTitlebar: event.target.checked })}
+                />
+                <span className="switch-track" />
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
 
 function ContextMenu({
   state,
+  targetName,
   canPaste,
   onClose,
   onSelect,
@@ -1108,6 +1390,7 @@ function ContextMenu({
   onLayer,
 }: {
   state: ContextMenuState;
+  targetName: string;
   canPaste: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
@@ -1134,9 +1417,10 @@ function ContextMenu({
   return (
     <div className="context-scrim" onClick={onClose}>
       <div className="context-menu" style={{ left: state.x, top: state.y }} onClick={(event) => event.stopPropagation()}>
+        <div className="context-menu-header">{targetName}</div>
         {state.stack.length > 1 ? (
           <div className="context-submenu">
-            <button type="button">Select</button>
+            <button type="button" className="has-submenu">Select object<span>›</span></button>
             <div className="submenu-panel">
               {state.stack.map((node) => (
                 <button key={node.id} type="button" onClick={() => onSelect(node.id)}>
@@ -1195,6 +1479,40 @@ function WireframeContextMenu({
         >
           Delete Wireframe
         </button>
+      </div>
+    </div>
+  );
+}
+
+function UnsavedChangesDialog({
+  projectName,
+  onSave,
+  onDiscard,
+  onCancel,
+}: {
+  projectName: string;
+  onSave: () => void | Promise<void>;
+  onDiscard: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="modal-scrim" role="presentation">
+      <div className="unsaved-dialog" role="dialog" aria-modal="true" aria-labelledby="unsaved-title">
+        <h2 id="unsaved-title">Save changes?</h2>
+        <p>
+          {projectName} has unsaved changes. Save before closing?
+        </p>
+        <div className="dialog-actions">
+          <button type="button" className="secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="danger" onClick={onDiscard}>
+            Discard
+          </button>
+          <button type="button" className="primary" onClick={onSave}>
+            Save
+          </button>
+        </div>
       </div>
     </div>
   );

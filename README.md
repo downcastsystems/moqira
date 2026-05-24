@@ -1,4 +1,4 @@
-# Mockups
+# Moqira
 
 A simpler Balsamiq-style desktop wireframing app built with React, Vite, and Tauri.
 

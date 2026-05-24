@@ -1,8 +1,8 @@
 {
-  "name": "mockups-app",
+  "name": "moqira",
   "version": "0.1.0",
   "private": true,
-  "description": "A simple desktop wireframing and mockups app.",
+  "description": "A simple desktop wireframing app.",
   "type": "module",
   "scripts": {
     "dev": "vite",

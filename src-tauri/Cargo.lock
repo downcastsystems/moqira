@@ -1797,7 +1797,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mockups"
+name = "moqira"
 version = "0.1.0"
 dependencies = [
  "serde",
