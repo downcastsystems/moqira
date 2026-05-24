@@ -287,6 +287,11 @@ function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const suppressNextLibraryClickRef = useRef(false);
   const attemptedStartupRestoreRef = useRef(false);
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
 
   useEffect(() => {
     void syncRecentProjects(recentProjects);
@@ -328,8 +333,6 @@ function App() {
     if (attemptedStartupRestoreRef.current || !isTauri()) return;
     attemptedStartupRestoreRef.current = true;
 
-    let cancelled = false;
-
     Promise.resolve(readStoredValue(projectPathKey, legacyProjectPathKey))
       .then((localPath) => localPath || readLastProjectPath())
       .then((rememberedPath) => {
@@ -337,10 +340,8 @@ function App() {
         return openProjectFile(rememberedPath).then((loadedProject) => ({ rememberedPath, loadedProject }));
       })
       .then((loadedProject) => {
-        if (cancelled || !loadedProject) {
-          if (!cancelled) {
-            setStatus("Ready");
-          }
+        if (!loadedProject) {
+          setStatus("Ready");
           return;
         }
         const projectName = projectNameFromPath(loadedProject.rememberedPath);
@@ -355,17 +356,9 @@ function App() {
         setStatus(`Opened ${projectName}`);
       })
       .catch((error) => {
-        if (cancelled) return;
         console.warn("Could not reopen last project", error);
-        localStorage.removeItem(projectPathKey);
-        void writeLastProjectPath(null);
-        setProjectPath(null);
         setStatus("Could not reopen last project.");
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const mutateProject = useCallback((updater: (project: MockupProject) => MockupProject) => {
@@ -545,20 +538,25 @@ function App() {
   }, []);
 
   const handleCloseRequest = useCallback(() => {
-    if (dirty) {
+    if (dirtyRef.current) {
       setClosePromptOpen(true);
       return;
     }
     void closeWindow();
-  }, [closeWindow, dirty]);
+  }, [closeWindow]);
 
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     listen("mockups-window-close-requested", handleCloseRequest).then((cleanup) => {
-      unlisten = cleanup;
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
     });
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [handleCloseRequest]);
 
   const openProject = useCallback(async () => {
