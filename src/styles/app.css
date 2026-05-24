@@ -352,6 +352,16 @@ button:disabled {
   background: transparent;
 }
 
+.snap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #ff3b30;
+  pointer-events: none;
+  z-index: 10;
+}
+
 .canvas-node {
   position: absolute;
   display: flex;

@@ -275,6 +275,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [wireframeContextMenu, setWireframeContextMenu] = useState<WireframeContextMenuState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [snapGuides, setSnapGuides] = useState<number[]>([]);
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -640,10 +641,30 @@ function App() {
       if (!dragState) return;
       event.preventDefault();
       if (dragState.kind === "move") {
-        updateNode(dragState.nodeId, {
-          x: Math.max(0, Math.round(dragState.originalX + event.clientX - dragState.startX)),
-          y: Math.max(0, Math.round(dragState.originalY + event.clientY - dragState.startY)),
-        });
+        const node = activeWireframe?.nodes.find((item) => item.id === dragState.nodeId);
+        if (!node) return;
+        const rawX = Math.max(0, Math.round(dragState.originalX + event.clientX - dragState.startX));
+        const rawY = Math.max(0, Math.round(dragState.originalY + event.clientY - dragState.startY));
+        const canvasWidth = canvasRef.current?.clientWidth ?? 0;
+        const threshold = 6;
+        const targets: number[] = [];
+        if (canvasWidth) targets.push(canvasWidth / 2);
+        for (const other of activeWireframe?.nodes ?? []) {
+          if (other.id === dragState.nodeId) continue;
+          targets.push(other.x, other.x + other.width / 2, other.x + other.width);
+        }
+        let best: { x: number; lines: number[]; dist: number } = { x: rawX, lines: [], dist: threshold + 1 };
+        for (const target of targets) {
+          for (const edge of [0, node.width / 2, node.width]) {
+            const snapped = Math.round(target - edge);
+            const dist = Math.abs(snapped - rawX);
+            if (dist < best.dist) best = { x: snapped, lines: [target], dist };
+            else if (dist === best.dist && best.x === snapped && !best.lines.includes(target)) best.lines.push(target);
+          }
+        }
+        const finalX = best.dist <= threshold ? best.x : rawX;
+        setSnapGuides(best.dist <= threshold ? best.lines : []);
+        updateNode(dragState.nodeId, { x: finalX, y: rawY });
       } else {
         updateNode(dragState.nodeId, {
           width: Math.max(28, Math.round(dragState.originalWidth + event.clientX - dragState.startX)),
@@ -651,14 +672,17 @@ function App() {
         });
       }
     };
-    const onPointerUp = () => setDragState(null);
+    const onPointerUp = () => {
+      setDragState(null);
+      setSnapGuides([]);
+    };
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [dragState, updateNode]);
+  }, [activeWireframe?.nodes, dragState, updateNode]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -920,6 +944,9 @@ function App() {
               }}
               onContextMenu={openCanvasContextMenu}
             >
+              {snapGuides.map((x, index) => (
+                <div key={`guide-${index}-${x}`} className="snap-guide" style={{ left: x }} />
+              ))}
               {activeWireframe?.nodes.map((node) => (
                 <CanvasItem
                   key={node.id}
