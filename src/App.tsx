@@ -7,6 +7,10 @@ import {
   CheckSquare,
   ChevronDown,
   Clipboard,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   FilePlus2,
   FolderOpen,
   Layers,
@@ -14,6 +18,7 @@ import {
   PanelRight,
   Plus,
   Save,
+  Search,
   SendToBack,
   Settings,
   Square,
@@ -23,10 +28,13 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTauri, openProjectFile, readLastProjectPath, saveProjectFile, syncRecentProjects, writeLastProjectPath } from "./lib/mockupsApi";
 import type { CanvasNode, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
 
+const leftPaneCollapsedKey = "moqira-left-pane-collapsed";
+const rightPaneCollapsedKey = "moqira-right-pane-collapsed";
 const projectPathKey = "moqira-last-project-path";
 const themeKey = "moqira-theme";
 const accentKey = "moqira-accent";
@@ -42,6 +50,24 @@ const legacyAppFontFamilyKey = "mockups-app-font-family";
 const legacyAccentTitlebarKey = "mockups-accent-titlebar";
 const legacyRecentProjectsKey = "mockups-recent-projects";
 const maxRecentProjects = 8;
+
+const lucideIconNames: string[] = Object.keys(LucideIcons)
+  .filter((name) => /^[A-Z]/.test(name) && !name.endsWith("Icon") && !name.endsWith("LucideIcon"))
+  .filter((name) => {
+    const value = (LucideIcons as Record<string, unknown>)[name];
+    return typeof value === "object" && value !== null && "$$typeof" in (value as object);
+  })
+  .sort();
+
+function getLucideIcon(name: string | undefined): LucideIcon {
+  if (name) {
+    const candidate = (LucideIcons as Record<string, unknown>)[name];
+    if (typeof candidate === "object" && candidate !== null && "$$typeof" in (candidate as object)) {
+      return candidate as LucideIcon;
+    }
+  }
+  return Plus;
+}
 
 const iconMap: Record<string, LucideIcon> = {
   rectangle: Square,
@@ -284,6 +310,15 @@ function App() {
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => readRecentProjects());
+  const [leftCollapsed, setLeftCollapsed] = useState<boolean>(() => localStorage.getItem(leftPaneCollapsedKey) === "true");
+  const [rightCollapsed, setRightCollapsed] = useState<boolean>(() => localStorage.getItem(rightPaneCollapsedKey) === "true");
+
+  useEffect(() => {
+    localStorage.setItem(leftPaneCollapsedKey, String(leftCollapsed));
+  }, [leftCollapsed]);
+  useEffect(() => {
+    localStorage.setItem(rightPaneCollapsedKey, String(rightCollapsed));
+  }, [rightCollapsed]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const suppressNextLibraryClickRef = useRef(false);
   const attemptedStartupRestoreRef = useRef(false);
@@ -831,6 +866,14 @@ function App() {
         data-tauri-drag-region
         onPointerDown={startTitlebarDrag}
       >
+        <button
+          type="button"
+          className="titlebar-pane-toggle"
+          title={leftCollapsed ? "Show sidebar" : "Hide sidebar"}
+          onClick={() => setLeftCollapsed((v) => !v)}
+        >
+          {leftCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
         <div className="project-title">
           <span>{projectDisplayName}</span>
           <strong className={dirty ? "save-state is-dirty" : "save-state"}>
@@ -851,10 +894,19 @@ function App() {
           <button type="button" onClick={() => void saveProject(false)} title="Save project">
             <Save size={16} />
           </button>
+          <button
+            type="button"
+            className="titlebar-pane-toggle"
+            title={rightCollapsed ? "Show properties" : "Hide properties"}
+            onClick={() => setRightCollapsed((v) => !v)}
+          >
+            {rightCollapsed ? <PanelRightOpen size={17} /> : <PanelRightClose size={17} />}
+          </button>
         </div>
       </header>
 
-      <main className="workspace">
+      <main className={`workspace${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}`}>
+        {leftCollapsed ? null : (
         <aside className="left-pane">
           <button
             type="button"
@@ -897,6 +949,7 @@ function App() {
             <button type="button" onClick={() => deleteWireframe()} disabled={project.wireframes.length === 1}>Delete</button>
           </div>
         </aside>
+        )}
 
         <section className="center-pane">
           <div className="component-library">
@@ -977,13 +1030,15 @@ function App() {
           </div>
         </section>
 
-        <aside className="right-pane">
-          <PropertiesPane
-            selectedNode={selectedNode}
-            onNodeChange={(patch) => selectedNode && updateNode(selectedNode.id, patch)}
-            onLayer={(action) => layerNode(selectedId, action)}
-          />
-        </aside>
+        {rightCollapsed ? null : (
+          <aside className="right-pane">
+            <PropertiesPane
+              selectedNode={selectedNode}
+              onNodeChange={(patch) => selectedNode && updateNode(selectedNode.id, patch)}
+              onLayer={(action) => layerNode(selectedId, action)}
+            />
+          </aside>
+        )}
       </main>
 
       <footer className="statusbar">
@@ -1151,7 +1206,7 @@ function NodeContent({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: P
   }
   if (node.kind === "textbox") return <div className="textbox-node">{node.text}</div>;
   if (node.kind === "icon") {
-    const Icon = node.icon === "CheckSquare" ? CheckSquare : node.icon === "Trash2" ? Trash2 : Plus;
+    const Icon = getLucideIcon(node.icon);
     return <Icon className="icon-node" size={Math.min(node.width, node.height) - 14} />;
   }
   if (node.kind === "text" || node.kind === "stickyNote") {
@@ -1294,14 +1349,7 @@ function PropertiesPane({
         </label>
       ) : null}
       {selectedNode.kind === "icon" ? (
-        <label>
-          Icon
-          <select value={selectedNode.icon ?? "Plus"} onChange={(event) => onNodeChange({ icon: event.target.value })}>
-            <option value="Plus">Plus</option>
-            <option value="CheckSquare">Check Square</option>
-            <option value="Trash2">Trash</option>
-          </select>
-        </label>
+        <IconPicker value={selectedNode.icon ?? "Plus"} onChange={(name) => onNodeChange({ icon: name })} />
       ) : null}
       <label className="checkbox-setting">
         <input type="checkbox" checked={Boolean(selectedNode.locked)} onChange={(event) => onNodeChange({ locked: event.target.checked })} />
@@ -1539,6 +1587,72 @@ function UnsavedChangesDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function IconPicker({ value, onChange }: { value: string; onChange: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const Current = getLucideIcon(value);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q ? lucideIconNames.filter((name) => name.toLowerCase().includes(q)) : lucideIconNames;
+    return list.slice(0, 300);
+  }, [query]);
+
+  return (
+    <div className="icon-picker">
+      <label>
+        Icon
+        <button type="button" className="icon-picker-trigger" onClick={() => setOpen((v) => !v)}>
+          <Current size={18} />
+          <span>{value}</span>
+          <ChevronDown size={14} />
+        </button>
+      </label>
+      {open ? (
+        <div className="icon-picker-popover" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="icon-picker-search">
+            <Search size={14} />
+            <input
+              autoFocus
+              type="search"
+              placeholder="Search icons..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+            />
+          </div>
+          <div className="icon-picker-grid">
+            {filtered.map((name) => {
+              const Icon = getLucideIcon(name);
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={name === value ? "icon-picker-tile is-active" : "icon-picker-tile"}
+                  title={name}
+                  onClick={() => {
+                    onChange(name);
+                    setOpen(false);
+                  }}
+                >
+                  <Icon size={18} />
+                </button>
+              );
+            })}
+            {filtered.length === 0 ? <div className="icon-picker-empty">No matches</div> : null}
+          </div>
+          {query.trim() && lucideIconNames.filter((n) => n.toLowerCase().includes(query.trim().toLowerCase())).length > 300 ? (
+            <div className="icon-picker-hint">Showing first 300 matches — refine your search.</div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
