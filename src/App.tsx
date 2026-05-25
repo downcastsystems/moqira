@@ -49,6 +49,7 @@ const legacyAppFontFamilyKey = "mockups-app-font-family";
 const legacyAccentTitlebarKey = "mockups-accent-titlebar";
 const legacyRecentProjectsKey = "mockups-recent-projects";
 const maxRecentProjects = 8;
+const maxProjectHistoryEntries = 100;
 
 const lucideIconNames: string[] = Object.keys(LucideIcons)
   .filter((name) => /^[A-Z]/.test(name) && !name.endsWith("Icon") && !name.endsWith("LucideIcon"))
@@ -222,8 +223,26 @@ type WireframeContextMenuState = {
 };
 
 type DragState =
-  | { kind: "move"; nodeId: string; startX: number; startY: number; originalX: number; originalY: number }
-  | { kind: "resize"; nodeId: string; startX: number; startY: number; originalWidth: number; originalHeight: number };
+  | {
+      kind: "move";
+      nodeId: string;
+      startX: number;
+      startY: number;
+      originalX: number;
+      originalY: number;
+      currentX: number;
+      currentY: number;
+    }
+  | {
+      kind: "resize";
+      nodeId: string;
+      startX: number;
+      startY: number;
+      originalWidth: number;
+      originalHeight: number;
+      currentWidth: number;
+      currentHeight: number;
+    };
 
 type PaletteDragState = {
   kind: ComponentKind;
@@ -250,6 +269,16 @@ type RecentProject = {
   path: string;
   name: string;
   openedAt: number;
+};
+
+type ProjectHistory = {
+  past: MockupProject[];
+  present: MockupProject;
+  future: MockupProject[];
+};
+
+type ProjectChangeOptions = {
+  groupKey?: string;
 };
 
 function editableTextField(node: CanvasNode): "text" | "options" | null {
@@ -407,9 +436,25 @@ function defaultSaveFileName(project: MockupProject, projectPath: string | null)
   return `${encodeTitleForFilename(baseName)}.moqira`;
 }
 
+function projectSnapshot(project: MockupProject) {
+  return JSON.stringify(project);
+}
+
+function dirtyProjectSnapshot(project: MockupProject) {
+  return projectSnapshot({ ...project, activeWireframeId: "" });
+}
+
+function createProjectHistory(project: MockupProject): ProjectHistory {
+  return { past: [], present: project, future: [] };
+}
+
+function pushHistoryEntry(past: MockupProject[], project: MockupProject) {
+  return [...past, project].slice(-maxProjectHistoryEntries);
+}
+
 function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [project, setProject] = useState<MockupProject>(() => createDefaultProject());
+  const [projectHistory, setProjectHistory] = useState<ProjectHistory>(() => createProjectHistory(createDefaultProject()));
   const [appAppearance, setAppAppearance] = useState<MockupProject["appearance"]>(() => {
     const appearance = defaultAppearance();
     appearance.colorScheme = (readStoredValue(themeKey, legacyThemeKey) as MockupProject["appearance"]["colorScheme"]) || appearance.colorScheme;
@@ -427,7 +472,6 @@ function App() {
   const [snapGuides, setSnapGuides] = useState<number[]>([]);
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
-  const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ready");
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [closePromptOpen, setClosePromptOpen] = useState(false);
@@ -447,6 +491,10 @@ function App() {
   const suppressNextLibraryClickRef = useRef(false);
   const attemptedStartupRestoreRef = useRef(false);
   const dirtyRef = useRef(false);
+  const activeProjectHistoryGroupKeyRef = useRef<string | null>(null);
+  const savedProjectSnapshotRef = useRef(dirtyProjectSnapshot(projectHistory.present));
+  const project = projectHistory.present;
+  const dirty = dirtyProjectSnapshot(project) !== savedProjectSnapshotRef.current;
 
   useEffect(() => {
     dirtyRef.current = dirty;
@@ -492,6 +540,65 @@ function App() {
     return () => window.clearTimeout(timeout);
   }, [saveToast]);
 
+  const endProjectHistoryGroup = useCallback(() => {
+    activeProjectHistoryGroupKeyRef.current = null;
+  }, []);
+
+  const resetProjectHistory = useCallback((nextProject: MockupProject, saved = true) => {
+    endProjectHistoryGroup();
+    setProjectHistory(createProjectHistory(nextProject));
+    if (saved) savedProjectSnapshotRef.current = dirtyProjectSnapshot(nextProject);
+  }, [endProjectHistoryGroup]);
+
+  const commitProjectChange = useCallback(
+    (updater: (project: MockupProject) => MockupProject, options: ProjectChangeOptions = {}) => {
+      setProjectHistory((current) => {
+        const nextProject = updater(current.present);
+        if (projectSnapshot(nextProject) === projectSnapshot(current.present)) return current;
+
+        const isSameGroup = Boolean(options.groupKey) && activeProjectHistoryGroupKeyRef.current === options.groupKey;
+        activeProjectHistoryGroupKeyRef.current = options.groupKey ?? null;
+
+        return {
+          past: isSameGroup ? current.past : pushHistoryEntry(current.past, current.present),
+          present: nextProject,
+          future: [],
+        };
+      });
+    },
+    [],
+  );
+
+  const undoProjectChange = useCallback(() => {
+    endProjectHistoryGroup();
+    setProjectHistory((current) => {
+      const previous = current.past.at(-1);
+      if (!previous) return current;
+      return {
+        past: current.past.slice(0, -1),
+        present: previous,
+        future: [current.present, ...current.future],
+      };
+    });
+    setSelectedId(null);
+    setStatus("Undid last change");
+  }, [endProjectHistoryGroup]);
+
+  const redoProjectChange = useCallback(() => {
+    endProjectHistoryGroup();
+    setProjectHistory((current) => {
+      const next = current.future[0];
+      if (!next) return current;
+      return {
+        past: pushHistoryEntry(current.past, current.present),
+        present: next,
+        future: current.future.slice(1),
+      };
+    });
+    setSelectedId(null);
+    setStatus("Redid last change");
+  }, [endProjectHistoryGroup]);
+
   useEffect(() => {
     if (attemptedStartupRestoreRef.current || !isTauri()) return;
     attemptedStartupRestoreRef.current = true;
@@ -509,10 +616,9 @@ function App() {
         }
         const projectName = projectNameFromPath(loadedProject.rememberedPath);
         const restoredProject = { ...loadedProject.loadedProject, name: projectName };
-        setProject(restoredProject);
+        resetProjectHistory(restoredProject);
         setProjectPath(loadedProject.rememberedPath);
         setSelectedId(null);
-        setDirty(false);
         localStorage.setItem(projectPathKey, loadedProject.rememberedPath);
         void writeLastProjectPath(loadedProject.rememberedPath);
         setRecentProjects((current) => addRecentProject(current, loadedProject.rememberedPath, projectName));
@@ -522,19 +628,18 @@ function App() {
         console.warn("Could not reopen last project", error);
         setStatus("Could not reopen last project.");
       });
-  }, []);
+  }, [resetProjectHistory]);
 
-  const mutateProject = useCallback((updater: (project: MockupProject) => MockupProject) => {
-    setProject((current) => updater(current));
-    setDirty(true);
-  }, []);
+  const mutateProject = useCallback((updater: (project: MockupProject) => MockupProject, options?: ProjectChangeOptions) => {
+    commitProjectChange(updater, options);
+  }, [commitProjectChange]);
 
   const mutateActiveWireframe = useCallback(
-    (updater: (wireframe: Wireframe) => Wireframe) => {
+    (updater: (wireframe: Wireframe) => Wireframe, options?: ProjectChangeOptions) => {
       mutateProject((current) => ({
         ...current,
         wireframes: current.wireframes.map((wireframe) => (wireframe.id === current.activeWireframeId ? updater(wireframe) : wireframe)),
-      }));
+      }), options);
     },
     [mutateProject],
   );
@@ -550,14 +655,55 @@ function App() {
   );
 
   const updateNode = useCallback(
-    (id: string, patch: Partial<CanvasNode>) => {
+    (id: string, patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => {
       mutateActiveWireframe((wireframe) => ({
         ...wireframe,
         nodes: wireframe.nodes.map((node) => (node.id === id ? { ...node, ...patch } : node)),
-      }));
+      }), options);
     },
     [mutateActiveWireframe],
   );
+
+  const previewNode = useCallback((id: string, patch: Partial<CanvasNode>) => {
+    endProjectHistoryGroup();
+    setProjectHistory((current) => ({
+      ...current,
+      present: {
+        ...current.present,
+        wireframes: current.present.wireframes.map((wireframe) =>
+          wireframe.id === current.present.activeWireframeId
+            ? { ...wireframe, nodes: wireframe.nodes.map((node) => (node.id === id ? { ...node, ...patch } : node)) }
+            : wireframe,
+        ),
+      },
+    }));
+  }, [endProjectHistoryGroup]);
+
+  const commitNodeDrag = useCallback((state: DragState) => {
+    setProjectHistory((current) => {
+      const originalProject = {
+        ...current.present,
+        wireframes: current.present.wireframes.map((wireframe) =>
+          wireframe.id === current.present.activeWireframeId
+            ? {
+                ...wireframe,
+                nodes: wireframe.nodes.map((node) => {
+                  if (node.id !== state.nodeId) return node;
+                  if (state.kind === "move") return { ...node, x: state.originalX, y: state.originalY };
+                  return { ...node, width: state.originalWidth, height: state.originalHeight };
+                }),
+              }
+            : wireframe,
+        ),
+      };
+      if (projectSnapshot(originalProject) === projectSnapshot(current.present)) return current;
+      return {
+        past: pushHistoryEntry(current.past, originalProject),
+        present: current.present,
+        future: [],
+      };
+    });
+  }, []);
 
   const beginTextEdit = useCallback((node: CanvasNode) => {
     const field = editableTextField(node);
@@ -657,9 +803,14 @@ function App() {
   );
 
   const selectWireframe = useCallback((wireframeId: string) => {
-    setProject((current) => (current.activeWireframeId === wireframeId ? current : { ...current, activeWireframeId: wireframeId }));
+    endProjectHistoryGroup();
+    setProjectHistory((current) =>
+      current.present.activeWireframeId === wireframeId
+        ? current
+        : { ...current, present: { ...current.present, activeWireframeId: wireframeId } },
+    );
     setSelectedId(null);
-  }, []);
+  }, [endProjectHistoryGroup]);
 
   const confirmLosingUnsavedChanges = useCallback(() => {
     if (!dirty) return true;
@@ -683,17 +834,18 @@ function App() {
       }
       const projectToSave = { ...project, name: projectNameFromPath(nextPath) };
       await saveProjectFile(nextPath, projectToSave);
-      setProject(projectToSave);
+      endProjectHistoryGroup();
+      setProjectHistory((current) => ({ ...current, present: projectToSave }));
       setProjectPath(nextPath);
       localStorage.setItem(projectPathKey, nextPath);
       await writeLastProjectPath(nextPath);
       setRecentProjects((current) => addRecentProject(current, nextPath, projectToSave.name));
-      setDirty(false);
+      savedProjectSnapshotRef.current = dirtyProjectSnapshot(projectToSave);
       setStatus(`Saved to ${nextPath}`);
       setSaveToast(`Saved ${fileNameFromPath(nextPath)}`);
       return true;
     },
-    [project, projectPath],
+    [endProjectHistoryGroup, project, projectPath],
   );
 
   const closeWindow = useCallback(async () => {
@@ -732,15 +884,14 @@ function App() {
     if (!chosen || Array.isArray(chosen)) return;
     const loaded = await openProjectFile(chosen);
     const projectName = projectNameFromPath(chosen);
-    setProject({ ...loaded, name: projectName });
+    resetProjectHistory({ ...loaded, name: projectName });
     setProjectPath(chosen);
     localStorage.setItem(projectPathKey, chosen);
     await writeLastProjectPath(chosen);
     setRecentProjects((current) => addRecentProject(current, chosen, projectName));
     setSelectedId(null);
-    setDirty(false);
     setStatus(`Opened ${projectName}`);
-  }, [confirmLosingUnsavedChanges]);
+  }, [confirmLosingUnsavedChanges, resetProjectHistory]);
 
   const openRecentProject = useCallback(
     async (path: string) => {
@@ -748,13 +899,12 @@ function App() {
       try {
         const loaded = await openProjectFile(path);
         const projectName = projectNameFromPath(path);
-        setProject({ ...loaded, name: projectName });
+        resetProjectHistory({ ...loaded, name: projectName });
         setProjectPath(path);
         localStorage.setItem(projectPathKey, path);
         await writeLastProjectPath(path);
         setRecentProjects((current) => addRecentProject(current, path, projectName));
         setSelectedId(null);
-        setDirty(false);
         setStatus(`Opened ${projectName}`);
       } catch (error) {
         console.warn("Could not open recent project", error);
@@ -766,17 +916,16 @@ function App() {
         setStatus(`Could not open ${fileNameFromPath(path)}`);
       }
     },
-    [confirmLosingUnsavedChanges],
+    [confirmLosingUnsavedChanges, resetProjectHistory],
   );
 
   const newProject = useCallback(() => {
     if (!confirmLosingUnsavedChanges()) return;
-    setProject(createDefaultProject());
+    resetProjectHistory(createDefaultProject());
     setProjectPath(null);
     setSelectedId(null);
-    setDirty(false);
     setStatus("Created new project");
-  }, [confirmLosingUnsavedChanges]);
+  }, [confirmLosingUnsavedChanges, resetProjectHistory]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -786,6 +935,8 @@ function App() {
     void listen("menu-open-project", () => void openProject()).then((cleanup) => cleanups.push(cleanup));
     void listen("menu-save-project", () => void saveProject(false)).then((cleanup) => cleanups.push(cleanup));
     void listen("menu-save-project-as", () => void saveProject(true)).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-undo-project", () => undoProjectChange()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-redo-project", () => redoProjectChange()).then((cleanup) => cleanups.push(cleanup));
     void listen("menu-open-settings", () => {
       setSelectedId(null);
       setSettingsOpen(true);
@@ -795,7 +946,7 @@ function App() {
     return () => {
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [newProject, openProject, openRecentProject, saveProject]);
+  }, [newProject, openProject, openRecentProject, redoProjectChange, saveProject, undoProjectChange]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -825,15 +976,18 @@ function App() {
         }
         const finalX = best.dist <= threshold ? best.x : rawX;
         setSnapGuides(best.dist <= threshold ? best.lines : []);
-        updateNode(dragState.nodeId, { x: finalX, y: rawY });
+        setDragState({ ...dragState, currentX: finalX, currentY: rawY });
+        previewNode(dragState.nodeId, { x: finalX, y: rawY });
       } else {
-        updateNode(dragState.nodeId, {
-          width: Math.max(28, Math.round(dragState.originalWidth + event.clientX - dragState.startX)),
-          height: Math.max(24, Math.round(dragState.originalHeight + event.clientY - dragState.startY)),
-        });
+        const width = Math.max(28, Math.round(dragState.originalWidth + event.clientX - dragState.startX));
+        const height = Math.max(24, Math.round(dragState.originalHeight + event.clientY - dragState.startY));
+        setDragState({ ...dragState, currentWidth: width, currentHeight: height });
+        previewNode(dragState.nodeId, { width, height });
       }
     };
     const onPointerUp = () => {
+      if (dragState) commitNodeDrag(dragState);
+      endProjectHistoryGroup();
       setDragState(null);
       setSnapGuides([]);
     };
@@ -843,7 +997,7 @@ function App() {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [activeWireframe?.nodes, dragState, updateNode]);
+  }, [activeWireframe?.nodes, commitNodeDrag, dragState, endProjectHistoryGroup, previewNode]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -878,6 +1032,19 @@ function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const modifier = event.metaKey || event.ctrlKey;
+      const target = event.target as HTMLElement | null;
+      const isEditingText = Boolean(target?.closest("input, textarea, select"));
+      if (modifier && event.key.toLowerCase() === "z" && !isEditingText) {
+        event.preventDefault();
+        if (event.shiftKey) redoProjectChange();
+        else undoProjectChange();
+        return;
+      }
+      if (modifier && event.key.toLowerCase() === "y" && !isEditingText) {
+        event.preventDefault();
+        redoProjectChange();
+        return;
+      }
       if (modifier && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void saveProject(event.shiftKey);
@@ -895,7 +1062,6 @@ function App() {
         pasteNode();
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
-        const target = event.target as HTMLElement | null;
         if (target?.closest("input, textarea, select")) return;
         event.preventDefault();
         deleteNode();
@@ -910,7 +1076,6 @@ function App() {
         setSelectedId(null);
       }
       if (selectedId && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
-        const target = event.target as HTMLElement | null;
         if (target?.closest("input, textarea, select")) return;
         event.preventDefault();
         const distance = event.shiftKey ? 10 : 1;
@@ -924,7 +1089,7 @@ function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeWireframe?.nodes, closeTextEditor, copyNode, cutNode, deleteNode, pasteNode, saveProject, selectedId, textEditor, updateNode]);
+  }, [activeWireframe?.nodes, closeTextEditor, copyNode, cutNode, deleteNode, pasteNode, redoProjectChange, saveProject, selectedId, textEditor, undoProjectChange, updateNode]);
 
   const addWireframe = () => {
     const id = createId("wireframe");
@@ -1159,7 +1324,16 @@ function App() {
                     if (node.locked) return;
                     event.stopPropagation();
                     setSelectedId(node.id);
-                    setDragState({ kind: "move", nodeId: node.id, startX: event.clientX, startY: event.clientY, originalX: node.x, originalY: node.y });
+                    setDragState({
+                      kind: "move",
+                      nodeId: node.id,
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      originalX: node.x,
+                      originalY: node.y,
+                      currentX: node.x,
+                      currentY: node.y,
+                    });
                   }}
                   onResizeStart={(event) => {
                     event.stopPropagation();
@@ -1171,6 +1345,8 @@ function App() {
                       startY: event.clientY,
                       originalWidth: node.width,
                       originalHeight: node.height,
+                      currentWidth: node.width,
+                      currentHeight: node.height,
                     });
                   }}
                 />
@@ -1183,7 +1359,8 @@ function App() {
           <aside className="right-pane">
             <PropertiesPane
               selectedNode={selectedNode}
-              onNodeChange={(patch) => selectedNode && updateNode(selectedNode.id, patch)}
+              onNodeChange={(patch, options) => selectedNode && updateNode(selectedNode.id, patch, options)}
+              onNodeChangeEnd={endProjectHistoryGroup}
               onLayer={(action) => layerNode(selectedId, action)}
             />
           </aside>
@@ -1605,13 +1782,19 @@ function FloatingTextEditor({
 function PropertiesPane({
   selectedNode,
   onNodeChange,
+  onNodeChangeEnd,
   onLayer,
 }: {
   selectedNode: CanvasNode | null;
-  onNodeChange: (patch: Partial<CanvasNode>) => void;
+  onNodeChange: (patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => void;
+  onNodeChangeEnd: () => void;
   onLayer: (action: "front" | "back" | "forward" | "backward") => void;
 }) {
   if (!selectedNode) return <div className="properties is-empty" />;
+
+  const groupedChange = (property: keyof CanvasNode, patch: Partial<CanvasNode>) => {
+    onNodeChange(patch, { groupKey: `property:${selectedNode.id}:${property}` });
+  };
 
   return (
     <div className="properties">
@@ -1619,19 +1802,19 @@ function PropertiesPane({
       <div className="property-grid">
         <label>
           X
-          <input type="number" value={selectedNode.x} onChange={(event) => onNodeChange({ x: Number(event.target.value) })} />
+          <input type="number" value={selectedNode.x} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("x", { x: Number(event.target.value) })} />
         </label>
         <label>
           Y
-          <input type="number" value={selectedNode.y} onChange={(event) => onNodeChange({ y: Number(event.target.value) })} />
+          <input type="number" value={selectedNode.y} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("y", { y: Number(event.target.value) })} />
         </label>
         <label>
           W
-          <input type="number" value={selectedNode.width} onChange={(event) => onNodeChange({ width: Number(event.target.value) })} />
+          <input type="number" value={selectedNode.width} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("width", { width: Number(event.target.value) })} />
         </label>
         <label>
           H
-          <input type="number" value={selectedNode.height} onChange={(event) => onNodeChange({ height: Number(event.target.value) })} />
+          <input type="number" value={selectedNode.height} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("height", { height: Number(event.target.value) })} />
         </label>
       </div>
       <div className="layer-buttons">
@@ -1642,15 +1825,15 @@ function PropertiesPane({
       </div>
       <label>
         Fill
-        <input type="color" value={selectedNode.fill ?? "#ffffff"} onChange={(event) => onNodeChange({ fill: event.target.value })} />
+        <input type="color" value={selectedNode.fill ?? "#ffffff"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("fill", { fill: event.target.value })} />
       </label>
       <label>
         Stroke
-        <input type="color" value={selectedNode.stroke ?? "#111827"} onChange={(event) => onNodeChange({ stroke: event.target.value })} />
+        <input type="color" value={selectedNode.stroke ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("stroke", { stroke: event.target.value })} />
       </label>
       <label>
         Text Color
-        <input type="color" value={selectedNode.textColor ?? "#111827"} onChange={(event) => onNodeChange({ textColor: event.target.value })} />
+        <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
       </label>
       <label>
         Font Size
@@ -1659,43 +1842,44 @@ function PropertiesPane({
           min={8}
           max={72}
           value={selectedNode.fontSize ?? 14}
-          onChange={(event) => onNodeChange({ fontSize: Number(event.target.value) })}
+          onBlur={onNodeChangeEnd}
+          onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
         />
       </label>
       {"value" in selectedNode ? (
         <label>
           Value
-          <input value={selectedNode.value ?? ""} onChange={(event) => onNodeChange({ value: event.target.value })} />
+          <input value={selectedNode.value ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("value", { value: event.target.value })} />
         </label>
       ) : null}
       {"placeholder" in selectedNode ? (
         <label>
           Placeholder
-          <input value={selectedNode.placeholder ?? ""} onChange={(event) => onNodeChange({ placeholder: event.target.value })} />
+          <input value={selectedNode.placeholder ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("placeholder", { placeholder: event.target.value })} />
         </label>
       ) : null}
       {"text" in selectedNode ? (
         <label>
           Text
-          <textarea value={selectedNode.text ?? ""} onChange={(event) => onNodeChange({ text: event.target.value })} />
+          <textarea value={selectedNode.text ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("text", { text: event.target.value })} />
         </label>
       ) : null}
       {selectedNode.options ? (
         <label>
           Options
-          <textarea value={selectedNode.options.join("\n")} onChange={(event) => onNodeChange({ options: event.target.value.split("\n") })} />
+          <textarea value={selectedNode.options.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("options", { options: event.target.value.split("\n") })} />
         </label>
       ) : null}
       {selectedNode.columns ? (
         <label>
           Columns
-          <textarea value={selectedNode.columns.join("\n")} onChange={(event) => onNodeChange({ columns: event.target.value.split("\n") })} />
+          <textarea value={selectedNode.columns.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("columns", { columns: event.target.value.split("\n") })} />
         </label>
       ) : null}
       {selectedNode.rows ? (
         <label>
           Rows
-          <textarea value={selectedNode.rows.join("\n")} onChange={(event) => onNodeChange({ rows: event.target.value.split("\n") })} />
+          <textarea value={selectedNode.rows.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("rows", { rows: event.target.value.split("\n") })} />
         </label>
       ) : null}
       {selectedNode.kind === "icon" || selectedNode.kind === "iconText" ? (

@@ -118,8 +118,8 @@ fn build_app_menu(handle: &tauri::AppHandle, recent_projects: &[RecentProject]) 
         "Edit",
         true,
         &[
-            &PredefinedMenuItem::undo(handle, None)?,
-            &PredefinedMenuItem::redo(handle, None)?,
+            &MenuItem::with_id(handle, "menu_undo_project", "Undo", true, Some("Cmd+Z"))?,
+            &MenuItem::with_id(handle, "menu_redo_project", "Redo", true, Some("Shift+Cmd+Z"))?,
             &PredefinedMenuItem::separator(handle)?,
             &PredefinedMenuItem::cut(handle, None)?,
             &PredefinedMenuItem::copy(handle, None)?,
@@ -232,6 +232,12 @@ fn main() {
                 }
                 "menu_save_project_as" => {
                     let _ = app.emit("menu-save-project-as", ());
+                }
+                "menu_undo_project" => {
+                    let _ = app.emit("menu-undo-project", ());
+                }
+                "menu_redo_project" => {
+                    let _ = app.emit("menu-redo-project", ());
                 }
                 "menu_settings" | "menu_file_settings" => {
                     let _ = app.emit("menu-open-settings", ());
