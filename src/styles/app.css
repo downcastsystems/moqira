@@ -94,6 +94,7 @@ button:disabled {
   gap: 10px;
   min-width: 0;
   font-weight: 700;
+  margin-left: 14px;
   margin-right: auto;
 }
 
@@ -268,6 +269,7 @@ button:disabled {
 .wireframe-list {
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 2px;
   padding: 8px;
   overflow-y: auto;

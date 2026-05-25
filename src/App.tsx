@@ -23,7 +23,6 @@ import {
   Settings,
   Square,
   StickyNote,
-  Trash2,
   Type,
   X,
 } from "lucide-react";
@@ -116,7 +115,7 @@ type ContextMenuState = {
 type WireframeContextMenuState = {
   x: number;
   y: number;
-  wireframeId: string;
+  wireframeId: string | null;
 };
 
 type DragState =
@@ -925,7 +924,14 @@ function App() {
               <Plus size={16} />
             </button>
           </div>
-          <div className="wireframe-list">
+          <div
+            className="wireframe-list"
+            onContextMenu={(event) => {
+              if ((event.target as HTMLElement).closest(".wireframe-row")) return;
+              event.preventDefault();
+              setWireframeContextMenu({ x: event.clientX, y: event.clientY, wireframeId: null });
+            }}
+          >
             {project.wireframes.map((wireframe) => (
               <button
                 key={wireframe.id}
@@ -1066,10 +1072,12 @@ function App() {
       {wireframeContextMenu ? (
         <WireframeContextMenu
           state={wireframeContextMenu}
-          canDelete={project.wireframes.length > 1}
+          canDelete={Boolean(wireframeContextMenu.wireframeId) && project.wireframes.length > 1}
+          canDuplicate={Boolean(wireframeContextMenu.wireframeId)}
           onClose={() => setWireframeContextMenu(null)}
-          onDuplicate={() => duplicateWireframe(wireframeContextMenu.wireframeId)}
-          onDelete={() => deleteWireframe(wireframeContextMenu.wireframeId)}
+          onNew={addWireframe}
+          onDuplicate={() => wireframeContextMenu.wireframeId && duplicateWireframe(wireframeContextMenu.wireframeId)}
+          onDelete={() => wireframeContextMenu.wireframeId && deleteWireframe(wireframeContextMenu.wireframeId)}
         />
       ) : null}
       {paletteDrag?.moved ? (
@@ -1520,13 +1528,17 @@ function ContextMenu({
 function WireframeContextMenu({
   state,
   canDelete,
+  canDuplicate,
   onClose,
+  onNew,
   onDuplicate,
   onDelete,
 }: {
   state: WireframeContextMenuState;
   canDelete: boolean;
+  canDuplicate: boolean;
   onClose: () => void;
+  onNew: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
@@ -1535,6 +1547,16 @@ function WireframeContextMenu({
       <div className="context-menu" style={{ left: state.x, top: state.y }} onClick={(event) => event.stopPropagation()}>
         <button
           type="button"
+          onClick={() => {
+            onNew();
+            onClose();
+          }}
+        >
+          New Wireframe
+        </button>
+        <button
+          type="button"
+          disabled={!canDuplicate}
           onClick={() => {
             onDuplicate();
             onClose();
