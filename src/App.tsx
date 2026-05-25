@@ -82,25 +82,128 @@ const iconMap: Record<string, LucideIcon> = {
   stickyNote: StickyNote,
 };
 
+const componentCategories = ["All", "Common", "Text", "Forms", "Containers", "Data", "Charts", "Navigation", "Markup", "Media", "iOS"] as const;
+type ComponentCategory = (typeof componentCategories)[number];
+
+function componentIcon(name: string): LucideIcon {
+  return iconMap[name] ?? getLucideIcon(name);
+}
+
+function component(
+  kind: ComponentKind,
+  label: string,
+  category: Exclude<ComponentCategory, "All">,
+  icon: string,
+  width: number,
+  height: number,
+  defaults: Partial<CanvasNode> = {},
+): ComponentDefinition {
+  return { kind, label, category, icon, width, height, defaults };
+}
+
 const componentLibrary: ComponentDefinition[] = [
-  { kind: "rectangle", label: "Rectangle", icon: "rectangle", width: 180, height: 110, defaults: { fill: "#ffffff", stroke: "#1f2937" } },
-  { kind: "button", label: "Button", icon: "button", width: 112, height: 40, defaults: { text: "Button", fill: "#ffffff" } },
-  { kind: "tabs", label: "Tabs", icon: "tabs", width: 260, height: 52, defaults: { options: ["One", "Two", "Three"], activeIndex: 0 } },
-  { kind: "buttonBar", label: "Button Bar", icon: "buttonBar", width: 240, height: 40, defaults: { options: ["One", "Two", "Three"], activeIndex: 0 } },
-  { kind: "checkbox", label: "Checkbox", icon: "checkbox", width: 150, height: 32, defaults: { text: "Checkbox", checked: false } },
-  {
-    kind: "checkboxList",
-    label: "Checkbox List",
-    icon: "checkboxList",
-    width: 190,
-    height: 118,
-    defaults: { options: ["not selected", "selected", "disabled"], text: "Checkbox List" },
-  },
-  { kind: "icon", label: "Icon", icon: "icon", width: 64, height: 64, defaults: { icon: "Plus", textColor: "#111827" } },
-  { kind: "dropdown", label: "Dropdown", icon: "dropdown", width: 180, height: 40, defaults: { text: "Choose...", options: ["First", "Second", "Third"] } },
-  { kind: "textbox", label: "Textbox", icon: "textbox", width: 190, height: 40, defaults: { text: "Text input" } },
-  { kind: "text", label: "Text", icon: "text", width: 180, height: 42, defaults: { text: "Text label", fontSize: 18, textColor: "#111827" } },
-  { kind: "stickyNote", label: "Sticky Note", icon: "stickyNote", width: 180, height: 160, defaults: { text: "A note", fill: "#fff2a8", fontSize: 16 } },
+  component("rectangle", "Rectangle", "Common", "rectangle", 180, 110, { fill: "#ffffff", stroke: "#1f2937" }),
+  component("button", "Button", "Common", "button", 112, 40, { text: "Button", fill: "#ffffff" }),
+  component("circleButton", "Circle Button", "Common", "CirclePlus", 72, 72, { text: "+", fill: "#ffffff", fontSize: 30 }),
+  component("pointyButton", "Pointy Button", "Common", "ChevronLeft", 150, 44, { text: "Button", fill: "#ffffff", variant: "left" }),
+  component("multilineButton", "Multiline Button", "Common", "MousePointer2", 170, 54, { text: "Multiline Button\nSecond line of text", fill: "#ffffff" }),
+  component("helpButton", "Help Button", "Common", "CircleHelp", 60, 60, { text: "?", fill: "#ffffff", fontSize: 30 }),
+  component("icon", "Icon", "Common", "icon", 64, 64, { icon: "Plus", textColor: "#111827" }),
+  component("iconText", "Icon and Text", "Common", "BadgeInfo", 110, 90, { icon: "Square", text: "Icon Name", textColor: "#111827" }),
+  component("stickyNote", "Comment", "Common", "stickyNote", 180, 160, { text: "A comment", fill: "#fff2a8", fontSize: 16 }),
+
+  component("text", "Text", "Text", "text", 180, 42, { text: "Text label", fontSize: 18, textColor: "#111827" }),
+  component("textLabel", "Text Label", "Text", "Type", 180, 34, { text: "Some text", fontSize: 18 }),
+  component("textTitle", "Text Title", "Text", "Heading1", 240, 48, { text: "A Big Title", fontSize: 28 }),
+  component("textSubtitle", "Text Subtitle", "Text", "Heading2", 220, 42, { text: "A Subtitle", fontSize: 22 }),
+  component("textParagraph", "Text Paragraph", "Text", "Pilcrow", 280, 96, { text: "A paragraph of text.\nA second row of text.", fontSize: 14 }),
+  component("link", "Link", "Text", "Link", 120, 34, { text: "a link", textColor: "#2563eb", fontSize: 24 }),
+  component("squigglyParagraph", "Squiggly Paragraph", "Text", "AlignLeft", 250, 86, { text: "A paragraph of text.\nA second row of text." }),
+
+  component("checkbox", "Checkbox", "Forms", "checkbox", 150, 32, { text: "Checkbox", checked: false }),
+  component("checkboxList", "Checkbox List", "Forms", "checkboxList", 190, 118, { options: ["not selected", "selected", "disabled"], text: "Checkbox List" }),
+  component("radioButton", "Radio Button", "Forms", "CircleDot", 160, 32, { text: "Radio Button", checked: false }),
+  component("radioButtonGroup", "Radio Button Group", "Forms", "ListChecks", 210, 126, { options: ["option 1", "option 2", "option 3"], text: "Radio Group" }),
+  component("dropdown", "Dropdown", "Forms", "dropdown", 180, 40, { text: "Choose...", options: ["First", "Second", "Third"] }),
+  component("comboBox", "ComboBox", "Forms", "ChevronDownSquare", 180, 40, { text: "ComboBox", options: ["First", "Second", "Third"] }),
+  component("textbox", "Textbox", "Forms", "textbox", 190, 40, { text: "Text input" }),
+  component("textInput", "Text Input", "Forms", "TextCursorInput", 190, 40, { text: "", placeholder: "Text input" }),
+  component("textArea", "Text Area", "Forms", "Text", 230, 120, { text: "Text area" }),
+  component("searchBox", "Search Box", "Forms", "Search", 190, 36, { text: "", placeholder: "search" }),
+  component("searchBoxVoice", "Search Box + Mic", "Forms", "Mic", 210, 36, { text: "", placeholder: "search" }),
+  component("colorPicker", "Color Picker", "Forms", "Palette", 76, 76, { fill: "#2563eb" }),
+  component("numericStepper", "Num. Stepper", "Forms", "PanelTopOpen", 96, 58, { value: 3 }),
+  component("onOffSwitch", "ON/OFF Switch", "Forms", "ToggleRight", 108, 56, { checked: true, fill: "#6cc24a" }),
+  component("progressBar", "Progress Bar", "Forms", "BatteryMedium", 170, 28, { value: 45 }),
+  component("progressBarIndeterminate", "Progress (Ind.)", "Forms", "MoreHorizontal", 170, 28, { variant: "indeterminate" }),
+
+  component("tabs", "Tabs", "Navigation", "tabs", 260, 52, { options: ["One", "Two", "Three"], activeIndex: 0 }),
+  component("buttonBar", "Button Bar", "Navigation", "buttonBar", 240, 40, { options: ["One", "Two", "Three"], activeIndex: 0 }),
+  component("tabBar", "Tab Bar", "Navigation", "PanelTop", 260, 72, { options: ["One", "Two", "Three", "Four"], activeIndex: 0 }),
+  component("vTabs", "V.Tabs", "Navigation", "PanelLeft", 150, 160, { options: ["First Tab", "Second Tab", "Third Tab", "Fourth Tab"], activeIndex: 1 }),
+  component("linkBar", "Link Bar", "Navigation", "Link", 250, 38, { options: ["Home", "Products", "Company", "Blog"] }),
+  component("breadcrumbs", "Breadcrumbs", "Navigation", "ChevronRight", 240, 34, { options: ["Home", "Products", "Bags", "Feature"] }),
+  component("menuBar", "Menu Bar", "Navigation", "Menu", 250, 34, { options: ["File", "Edit", "View", "Help"] }),
+  component("menu", "Menu", "Navigation", "PanelTopClose", 120, 142, { options: ["Open", "Open Recent", "Close", "Save", "Toggle Item"] }),
+  component("appBar", "App Bar", "Navigation", "PanelTop", 180, 32, { text: "Heading" }),
+  component("playback", "Playback", "Navigation", "CirclePlay", 120, 40, { options: ["rew", "play", "ff"] }),
+  component("toolbar", "Toolbar", "Navigation", "Rows3", 230, 32, { options: ["B", "I", "U", "link", "align"] }),
+
+  component("accordion", "Accordion", "Containers", "PanelTop", 170, 130, { options: ["Item One", "Item Two", "Item Three", "Item Four"] }),
+  component("alertBox", "Alert Box", "Containers", "MessageSquareWarning", 220, 115, { text: "Alert text goes here", options: ["No", "Yes"] }),
+  component("browser", "Browser", "Containers", "PanelTop", 220, 160, { text: "http://example.com" }),
+  component("window", "Window", "Containers", "PanelTop", 220, 160, { text: "Window Title" }),
+  component("modalScreen", "Modal Screen", "Containers", "PanelTop", 220, 140, { fill: "#777777" }),
+  component("fieldSet", "Field Set", "Containers", "SquareDashed", 220, 170, { text: "Group Name", fill: "#ffffff" }),
+  component("popover", "Popover", "Containers", "MessageSquare", 160, 105, { text: "Popover", fill: "#ffffff" }),
+  component("tooltip", "Tooltip", "Containers", "MessageCircle", 165, 74, { text: "a tooltip", fill: "#ffffff" }),
+  component("callout", "Callout", "Containers", "CircleAlert", 86, 86, { text: "1", fill: "#fff300", fontSize: 28 }),
+
+  component("list", "List", "Data", "List", 140, 130, { options: ["Item One", "Item Two", "Item Three"] }),
+  component("listIcon", "List with Icons", "Data", "ListChecks", 170, 130, { options: ["Item One", "Item Two", "Item Three"] }),
+  component("treePane", "Tree Pane", "Data", "FolderTree", 210, 160, { options: ["▾ Home", "  ▣ page", "  ▣ page", "▸ Folder"] }),
+  component("dataGrid", "Data Grid", "Data", "Table", 260, 150, { columns: ["Name", "Role", "Status"], rows: ["Alice|PM|Active", "Ben|Design|Review", "Cara|Eng|Ready"] }),
+  component("calendar", "Calendar", "Data", "CalendarDays", 130, 130, { text: "MAY 2026" }),
+  component("dateChooser", "Date Chooser", "Data", "CalendarPlus", 128, 42, { text: " / / " }),
+  component("datePicker", "Date Picker", "Data", "Calendar", 135, 170, { text: "May 2026" }),
+  component("timePicker", "Time Picker", "Data", "Clock3", 88, 120, { text: "4:14" }),
+  component("siteMap", "Site Map", "Data", "Network", 210, 130, { options: ["Home", "About", "Products", "Contact"] }),
+  component("streetMap", "Street Map", "Data", "Map", 160, 120, { fill: "#eef2e8" }),
+  component("tagCloud", "Tag Cloud", "Data", "Tags", 250, 105, { text: "wireframe mockup UI design notes", fontSize: 14 }),
+
+  component("chartBar", "Chart: Bar", "Charts", "BarChartHorizontal", 150, 105),
+  component("chartColumn", "Chart: Column", "Charts", "BarChart3", 150, 105),
+  component("chartLine", "Chart: Line", "Charts", "LineChart", 160, 105),
+  component("chartPie", "Chart: Pie", "Charts", "PieChart", 110, 110),
+  component("hScrollBar", "H.Scroll Bar", "Charts", "PanelBottom", 180, 28, { orientation: "horizontal" }),
+  component("vScrollBar", "V.Scroll Bar", "Charts", "PanelRight", 28, 180, { orientation: "vertical" }),
+  component("hSlider", "H.Slider", "Charts", "SlidersHorizontal", 170, 36, { orientation: "horizontal", value: 55 }),
+  component("vSlider", "V.Slider", "Charts", "SlidersVertical", 36, 170, { orientation: "vertical", value: 55 }),
+  component("volumeSlider", "Volume Slider", "Charts", "Volume2", 180, 46, { value: 55 }),
+
+  component("arrow", "Arrow", "Markup", "MoveUpRight", 140, 80),
+  component("hRule", "H.Rule", "Markup", "Minus", 150, 24, { orientation: "horizontal" }),
+  component("vRule", "V.Rule", "Markup", "Minus", 24, 150, { orientation: "vertical" }),
+  component("hSplitter", "H.Splitter", "Markup", "GripHorizontal", 180, 28),
+  component("vSplitter", "V.Splitter", "Markup", "GripVertical", 28, 180),
+  component("redX", "Red X", "Markup", "X", 140, 70, { stroke: "#8b111c" }),
+  component("scratchOut", "Scratch-Out", "Markup", "Paintbrush", 140, 70),
+  component("squigglyLine", "Squiggly Line", "Markup", "Waves", 160, 35),
+  component("hCurlyBrace", "H.Curly Brace", "Markup", "Braces", 180, 46, { text: "A paragraph of text.\nA second row of text." }),
+  component("vCurlyBrace", "V.Curly Brace", "Markup", "Braces", 56, 160, { text: "A paragraph of text.\nA second row of text." }),
+  component("shape", "Shape", "Markup", "Circle", 95, 95, { fill: "#ffffff" }),
+
+  component("image", "Image", "Media", "Image", 140, 120, { fill: "#ffffff" }),
+  component("webcam", "Webcam", "Media", "Webcam", 130, 130),
+  component("videoPlayer", "Video Player", "Media", "Clapperboard", 220, 145),
+  component("coverFlow", "Cover Flow", "Media", "GalleryHorizontal", 200, 120),
+  component("smartphone", "Smartphone", "Media", "Smartphone", 82, 160),
+  component("iphone", "iPhone", "Media", "Smartphone", 82, 160),
+  component("ipad", "iPad", "Media", "Tablet", 115, 170),
+
+  component("iosKeyboard", "iOS Keyboard", "iOS", "Keyboard", 235, 110),
+  component("iosMenu", "iOS Menu", "iOS", "List", 120, 170, { options: ["Label", "Label", "Label", "Label"] }),
+  component("iosPicker", "iOS Picker", "iOS", "PanelBottom", 150, 130, { options: ["08", "09", "10", "AM", "PM"] }),
 ];
 
 type ContextMenuState = {
@@ -150,7 +253,28 @@ type RecentProject = {
 };
 
 function editableTextField(node: CanvasNode): "text" | "options" | null {
-  if (node.kind === "checkboxList" || node.kind === "tabs" || node.kind === "buttonBar") return "options";
+  const optionKinds: ComponentKind[] = [
+    "accordion",
+    "buttonBar",
+    "checkboxList",
+    "breadcrumbs",
+    "linkBar",
+    "list",
+    "listIcon",
+    "menu",
+    "menuBar",
+    "playback",
+    "radioButtonGroup",
+    "siteMap",
+    "tabs",
+    "tabBar",
+    "toolbar",
+    "treePane",
+    "vTabs",
+    "iosMenu",
+    "iosPicker",
+  ];
+  if (optionKinds.includes(node.kind)) return "options";
   if (typeof node.text === "string") return "text";
   return null;
 }
@@ -309,6 +433,7 @@ function App() {
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => readRecentProjects());
+  const [activeComponentCategory, setActiveComponentCategory] = useState<ComponentCategory>("All");
   const [leftCollapsed, setLeftCollapsed] = useState<boolean>(() => localStorage.getItem(leftPaneCollapsedKey) === "true");
   const [rightCollapsed, setRightCollapsed] = useState<boolean>(() => localStorage.getItem(rightPaneCollapsedKey) === "true");
 
@@ -336,6 +461,10 @@ function App() {
     [project.activeWireframeId, project.wireframes],
   );
   const selectedNode = activeWireframe?.nodes.find((node) => node.id === selectedId) ?? null;
+  const visibleComponentLibrary = useMemo(
+    () => componentLibrary.filter((definition) => activeComponentCategory === "All" || definition.category === activeComponentCategory),
+    [activeComponentCategory],
+  );
 
   const startTitlebarDrag = (event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -958,9 +1087,22 @@ function App() {
         )}
 
         <section className="center-pane">
-          <div className="component-library">
-            {componentLibrary.map((definition) => {
-              const Icon = iconMap[definition.icon] ?? Square;
+          <div className="component-library-shell">
+            <div className="component-categories" aria-label="Component categories">
+              {componentCategories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={category === activeComponentCategory ? "is-active" : ""}
+                  onClick={() => setActiveComponentCategory(category)}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+            <div className="component-library">
+            {visibleComponentLibrary.map((definition) => {
+              const Icon = componentIcon(definition.icon);
               return (
                 <button
                   key={definition.kind}
@@ -988,6 +1130,7 @@ function App() {
                 </button>
               );
             })}
+            </div>
           </div>
 
           <div className="canvas-scroll">
@@ -1180,10 +1323,56 @@ function CanvasItem({
   );
 }
 
+function nodeOptions(node: CanvasNode, fallback: string[] = []) {
+  return node.options?.length ? node.options : fallback;
+}
+
+function nodePercent(node: CanvasNode, fallback = 45) {
+  const value = Number(node.value ?? fallback);
+  return clamp(Number.isFinite(value) ? value : fallback, 0, 100);
+}
+
 function NodeContent({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: Partial<CanvasNode>) => void }) {
-  if (node.kind === "button") return <div className="button-node">{node.text}</div>;
-  if (node.kind === "tabs") return <Segmented items={node.options ?? []} activeIndex={node.activeIndex ?? 0} />;
-  if (node.kind === "buttonBar") return <Segmented items={node.options ?? []} activeIndex={node.activeIndex ?? 0} compact />;
+  if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton"].includes(node.kind)) return <ButtonVisual node={node} />;
+  if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(node.kind)) return <TextVisual node={node} />;
+  if (["checkbox", "checkboxList", "radioButton", "radioButtonGroup", "dropdown", "comboBox", "textbox", "textInput", "textArea", "searchBox", "searchBoxVoice", "colorPicker", "numericStepper", "onOffSwitch", "progressBar", "progressBarIndeterminate"].includes(node.kind)) {
+    return <FormVisual node={node} onUpdate={onUpdate} />;
+  }
+  if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} />;
+  if (["accordion", "alertBox", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} />;
+  if (["list", "listIcon", "treePane", "dataGrid", "calendar", "dateChooser", "datePicker", "timePicker", "siteMap", "streetMap", "tagCloud"].includes(node.kind)) return <DataVisual node={node} />;
+  if (["chartBar", "chartColumn", "chartLine", "chartPie", "hScrollBar", "vScrollBar", "hSlider", "vSlider", "volumeSlider"].includes(node.kind)) return <ChartVisual node={node} />;
+  if (["arrow", "hRule", "vRule", "hSplitter", "vSplitter", "redX", "scratchOut", "squigglyLine", "hCurlyBrace", "vCurlyBrace", "shape"].includes(node.kind)) return <MarkupVisual node={node} />;
+  if (["icon", "iconText", "image", "webcam", "videoPlayer", "coverFlow", "smartphone", "iphone", "ipad", "iosKeyboard", "iosMenu", "iosPicker"].includes(node.kind)) return <MediaVisual node={node} />;
+  if (node.kind === "stickyNote") return <div className="editable-node-text">{node.text}</div>;
+  return null;
+}
+
+function ButtonVisual({ node }: { node: CanvasNode }) {
+  const className = `button-node visual-button visual-button-${node.kind}`;
+  return (
+    <div className={className}>
+      <span>{node.text}</span>
+    </div>
+  );
+}
+
+function TextVisual({ node }: { node: CanvasNode }) {
+  const text = node.text ?? "";
+  if (node.kind === "squigglyParagraph") {
+    return (
+      <div className="squiggle-paragraph">
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
+    );
+  }
+  return <div className={`editable-node-text text-visual text-visual-${node.kind}`}>{text}</div>;
+}
+
+function FormVisual({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: Partial<CanvasNode>) => void }) {
   if (node.kind === "checkbox") {
     return (
       <label className="checkbox-node">
@@ -1192,19 +1381,27 @@ function NodeContent({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: P
       </label>
     );
   }
-  if (node.kind === "checkboxList") {
+  if (node.kind === "radioButton") {
+    return (
+      <label className="radio-node">
+        <span className={node.checked ? "radio-dot is-checked" : "radio-dot"} />
+        <span>{node.text}</span>
+      </label>
+    );
+  }
+  if (node.kind === "checkboxList" || node.kind === "radioButtonGroup") {
     return (
       <div className="checkbox-list-node">
-        {(node.options ?? []).map((option, index) => (
+        {nodeOptions(node, ["Option one", "Option two", "Option three"]).map((option, index) => (
           <label key={`${option}-${index}`}>
-            <input type="checkbox" defaultChecked={index === 1} />
+            {node.kind === "radioButtonGroup" ? <span className={index === 0 ? "radio-dot is-checked" : "radio-dot"} /> : <input type="checkbox" defaultChecked={index === 1} />}
             <span>{option}</span>
           </label>
         ))}
       </div>
     );
   }
-  if (node.kind === "dropdown") {
+  if (node.kind === "dropdown" || node.kind === "comboBox") {
     return (
       <div className="dropdown-node">
         <span>{node.text}</span>
@@ -1212,15 +1409,136 @@ function NodeContent({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: P
       </div>
     );
   }
-  if (node.kind === "textbox") return <div className="textbox-node">{node.text}</div>;
-  if (node.kind === "icon") {
-    const Icon = getLucideIcon(node.icon);
-    return <Icon className="icon-node" size={Math.min(node.width, node.height) - 14} />;
+  if (node.kind === "textbox" || node.kind === "textInput") return <div className="textbox-node">{node.text || node.placeholder}</div>;
+  if (node.kind === "textArea") return <div className="textarea-node">{node.text}</div>;
+  if (node.kind === "searchBox" || node.kind === "searchBoxVoice") {
+    return (
+      <div className="search-node">
+        <Search size={14} />
+        <span>{node.text || node.placeholder}</span>
+        {node.kind === "searchBoxVoice" ? <span className="mic-dot" /> : null}
+      </div>
+    );
   }
-  if (node.kind === "text" || node.kind === "stickyNote") {
-    return <div className="editable-node-text">{node.text}</div>;
+  if (node.kind === "colorPicker") return <div className="color-picker-node"><span /></div>;
+  if (node.kind === "numericStepper") return <div className="stepper-node"><strong>{node.value ?? 3}</strong><span>▲</span><span>▼</span></div>;
+  if (node.kind === "onOffSwitch") return <div className={node.checked ? "switch-node is-on" : "switch-node"}><span /></div>;
+  if (node.kind === "progressBar" || node.kind === "progressBarIndeterminate") {
+    return <div className="progress-node"><span style={{ width: node.kind === "progressBarIndeterminate" ? "28%" : `${nodePercent(node)}%` }} /></div>;
   }
   return null;
+}
+
+function NavigationVisual({ node }: { node: CanvasNode }) {
+  if (node.kind === "tabs") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
+  if (node.kind === "buttonBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} compact />;
+  if (node.kind === "tabBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
+  if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <span key={item} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</span>)}</div>;
+  if (node.kind === "linkBar" || node.kind === "breadcrumbs") return <div className={`linkbar-node ${node.kind}`}>{nodeOptions(node).map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}</div>;
+  if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  if (node.kind === "appBar") return <div className="app-bar-node"><span>{node.text}</span><small>▾</small></div>;
+  if (node.kind === "playback") return <div className="playback-node"><span>◀◀</span><span>▶</span><span>▶▶</span></div>;
+  if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  return null;
+}
+
+function ContainerVisual({ node }: { node: CanvasNode }) {
+  if (node.kind === "accordion") return <div className="accordion-node">{nodeOptions(node).map((item, index) => <span key={item} className={index === 0 ? "is-open" : ""}>{item}</span>)}</div>;
+  if (node.kind === "alertBox") return <div className="alert-node"><strong>Alert</strong><p>{node.text}</p><div>{nodeOptions(node, ["No", "Yes"]).map((item) => <span key={item}>{item}</span>)}</div></div>;
+  if (node.kind === "browser" || node.kind === "window") return <ChromeFrame node={node} />;
+  if (node.kind === "modalScreen") return <div className="modal-screen-node" />;
+  if (node.kind === "fieldSet") return <fieldset className="fieldset-node"><legend>{node.text}</legend></fieldset>;
+  if (node.kind === "popover") return <div className="popover-node"><span />{node.text}</div>;
+  if (node.kind === "tooltip") return <div className="tooltip-node">{node.text}</div>;
+  if (node.kind === "callout") return <div className="callout-node">{node.text}</div>;
+  return null;
+}
+
+function ChromeFrame({ node }: { node: CanvasNode }) {
+  return (
+    <div className="chrome-frame-node">
+      <div><span /><span /><span /><strong>{node.text}</strong></div>
+      <section />
+    </div>
+  );
+}
+
+function DataVisual({ node }: { node: CanvasNode }) {
+  if (node.kind === "list" || node.kind === "listIcon" || node.kind === "treePane") return <div className={`list-node ${node.kind}`}>{nodeOptions(node).map((item) => <span key={item}>{node.kind === "listIcon" ? "◆ " : ""}{item}</span>)}</div>;
+  if (node.kind === "dataGrid") return <DataGridVisual node={node} />;
+  if (node.kind === "calendar" || node.kind === "datePicker") return <CalendarVisual node={node} />;
+  if (node.kind === "dateChooser") return <div className="date-chooser-node">{node.text}<span>▣</span></div>;
+  if (node.kind === "timePicker") return <div className="time-picker-node"><span>{node.text}</span><i /></div>;
+  if (node.kind === "siteMap") return <SiteMapVisual node={node} />;
+  if (node.kind === "streetMap") return <div className="street-map-node"><span /><span /><span /></div>;
+  if (node.kind === "tagCloud") return <div className="tag-cloud-node">{(node.text ?? "").split(/\s+/).map((word, index) => <span key={`${word}-${index}`}>{word}</span>)}</div>;
+  return null;
+}
+
+function DataGridVisual({ node }: { node: CanvasNode }) {
+  const columns = node.columns?.length ? node.columns : ["Name", "Role", "Status"];
+  const rows = node.rows?.length ? node.rows : ["Alice|PM|Active", "Ben|Design|Review"];
+  return (
+    <table className="data-grid-node">
+      <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+      <tbody>{rows.map((row, rowIndex) => <tr key={`${row}-${rowIndex}`}>{columns.map((_, index) => <td key={index}>{row.split("|")[index] ?? ""}</td>)}</tr>)}</tbody>
+    </table>
+  );
+}
+
+function CalendarVisual({ node }: { node: CanvasNode }) {
+  return <div className="calendar-node"><strong>{node.text}</strong>{Array.from({ length: 35 }, (_, index) => <span key={index}>{index > 4 ? index - 4 : ""}</span>)}</div>;
+}
+
+function SiteMapVisual({ node }: { node: CanvasNode }) {
+  const items = nodeOptions(node);
+  return <div className="site-map-node"><strong>{items[0]}</strong>{items.slice(1).map((item) => <span key={item}>{item}</span>)}</div>;
+}
+
+function ChartVisual({ node }: { node: CanvasNode }) {
+  if (node.kind === "chartPie") return <div className="chart-pie-node" />;
+  if (node.kind === "chartLine") return <div className="chart-line-node"><span /><span /><span /></div>;
+  if (node.kind === "chartBar" || node.kind === "chartColumn") return <div className={`chart-bars-node ${node.kind}`}>{[58, 82, 42, 68].map((value) => <span key={value} style={{ "--bar-value": `${value}%` } as React.CSSProperties} />)}</div>;
+  if (node.kind === "hScrollBar" || node.kind === "vScrollBar") return <div className={`scrollbar-node ${node.kind}`}><span /></div>;
+  if (node.kind === "hSlider" || node.kind === "vSlider" || node.kind === "volumeSlider") return <div className={`slider-node ${node.kind}`}><span /><i style={{ "--slider-value": `${nodePercent(node)}%` } as React.CSSProperties} /></div>;
+  return null;
+}
+
+function MarkupVisual({ node }: { node: CanvasNode }) {
+  if (node.kind === "arrow") return <div className="arrow-node"><span /></div>;
+  if (node.kind === "hRule" || node.kind === "vRule") return <div className={`rule-node ${node.kind}`} />;
+  if (node.kind === "hSplitter" || node.kind === "vSplitter") return <div className={`splitter-node ${node.kind}`}><span /></div>;
+  if (node.kind === "redX") return <div className="red-x-node"><span /><span /></div>;
+  if (node.kind === "scratchOut") return <div className="scratch-node">{Array.from({ length: 8 }, (_, index) => <span key={index} />)}</div>;
+  if (node.kind === "squigglyLine") return <div className="squiggly-line-node" />;
+  if (node.kind === "hCurlyBrace" || node.kind === "vCurlyBrace") return <div className={`curly-node ${node.kind}`}><span>{node.kind === "hCurlyBrace" ? "︷" : "}"}</span><small>{node.text}</small></div>;
+  if (node.kind === "shape") return <div className="shape-node" />;
+  return null;
+}
+
+function MediaVisual({ node }: { node: CanvasNode }) {
+  if (node.kind === "icon") {
+    const Icon = getLucideIcon(node.icon);
+    return <Icon className="icon-node" size={Math.max(12, Math.min(node.width, node.height) - 14)} />;
+  }
+  if (node.kind === "iconText") {
+    const Icon = getLucideIcon(node.icon);
+    return <div className="icon-text-node"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span>{node.text}</span></div>;
+  }
+  if (node.kind === "image") return <div className="image-node"><span /><span /></div>;
+  if (node.kind === "webcam") return <div className="webcam-node"><span /><i /></div>;
+  if (node.kind === "videoPlayer") return <div className="video-node"><section /><footer><span /><b /></footer></div>;
+  if (node.kind === "coverFlow") return <div className="coverflow-node"><span /><span /><span /></div>;
+  if (node.kind === "smartphone" || node.kind === "iphone" || node.kind === "ipad") return <DeviceVisual node={node} />;
+  if (node.kind === "iosKeyboard") return <div className="ios-keyboard-node">{Array.from({ length: 30 }, (_, index) => <span key={index}>{index === 26 ? "space" : ""}</span>)}</div>;
+  if (node.kind === "iosMenu") return <div className="ios-menu-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  if (node.kind === "iosPicker") return <div className="ios-picker-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  return null;
+}
+
+function DeviceVisual({ node }: { node: CanvasNode }) {
+  return <div className={`device-node ${node.kind}`}><span /><section /></div>;
 }
 
 function Segmented({ items, activeIndex, compact = false }: { items: string[]; activeIndex: number; compact?: boolean }) {
@@ -1344,6 +1662,18 @@ function PropertiesPane({
           onChange={(event) => onNodeChange({ fontSize: Number(event.target.value) })}
         />
       </label>
+      {"value" in selectedNode ? (
+        <label>
+          Value
+          <input value={selectedNode.value ?? ""} onChange={(event) => onNodeChange({ value: event.target.value })} />
+        </label>
+      ) : null}
+      {"placeholder" in selectedNode ? (
+        <label>
+          Placeholder
+          <input value={selectedNode.placeholder ?? ""} onChange={(event) => onNodeChange({ placeholder: event.target.value })} />
+        </label>
+      ) : null}
       {"text" in selectedNode ? (
         <label>
           Text
@@ -1356,7 +1686,19 @@ function PropertiesPane({
           <textarea value={selectedNode.options.join("\n")} onChange={(event) => onNodeChange({ options: event.target.value.split("\n") })} />
         </label>
       ) : null}
-      {selectedNode.kind === "icon" ? (
+      {selectedNode.columns ? (
+        <label>
+          Columns
+          <textarea value={selectedNode.columns.join("\n")} onChange={(event) => onNodeChange({ columns: event.target.value.split("\n") })} />
+        </label>
+      ) : null}
+      {selectedNode.rows ? (
+        <label>
+          Rows
+          <textarea value={selectedNode.rows.join("\n")} onChange={(event) => onNodeChange({ rows: event.target.value.split("\n") })} />
+        </label>
+      ) : null}
+      {selectedNode.kind === "icon" || selectedNode.kind === "iconText" ? (
         <IconPicker value={selectedNode.icon ?? "Plus"} onChange={(name) => onNodeChange({ icon: name })} />
       ) : null}
       <label className="checkbox-setting">
