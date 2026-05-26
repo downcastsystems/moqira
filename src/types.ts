@@ -122,6 +122,8 @@ export type CanvasNode = {
 export type Wireframe = {
   id: string;
   name: string;
+  background?: "white" | "black";
+  showGrid?: boolean;
   nodes: CanvasNode[];
 };
 

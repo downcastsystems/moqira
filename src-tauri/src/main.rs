@@ -112,6 +112,7 @@ fn build_app_menu(handle: &tauri::AppHandle, recent_projects: &[RecentProject]) 
         true,
         &[
             &MenuItem::with_id(handle, "menu_new_project", "New Project", true, Some("Cmd+N"))?,
+            &MenuItem::with_id(handle, "menu_new_wireframe", "New Wireframe", true, Some("Shift+Cmd+N"))?,
             &MenuItem::with_id(handle, "menu_open_project", "Open...", true, Some("Cmd+O"))?,
             &recent_menu,
             &PredefinedMenuItem::separator(handle)?,
@@ -302,6 +303,9 @@ fn main() {
             match id {
                 "menu_new_project" => {
                     let _ = app.emit("menu-new-project", ());
+                }
+                "menu_new_wireframe" => {
+                    let _ = app.emit("menu-new-wireframe", ());
                 }
                 "menu_open_project" => {
                     let _ = app.emit("menu-open-project", ());

@@ -3,27 +3,29 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Bold,
   BringToFront,
   CheckSquare,
   ChevronDown,
   Clipboard,
+  Italic,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  FilePlus2,
-  FolderOpen,
   Layers,
   MousePointer2,
   PanelRight,
   Plus,
-  Save,
   Search,
   SendToBack,
   Settings,
   Square,
   StickyNote,
   Type,
+  Underline,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -50,6 +52,14 @@ const legacyAccentTitlebarKey = "mockups-accent-titlebar";
 const legacyRecentProjectsKey = "mockups-recent-projects";
 const maxRecentProjects = 8;
 const maxProjectHistoryEntries = 100;
+
+function wireframeBackground(wireframe: Wireframe | undefined) {
+  return wireframe?.background ?? "white";
+}
+
+function wireframeShowGrid(wireframe: Wireframe | undefined) {
+  return wireframe?.showGrid ?? true;
+}
 
 const lucideIconNames: string[] = Object.keys(LucideIcons)
   .filter((name) => /^[A-Z]/.test(name) && !name.endsWith("Icon") && !name.endsWith("LucideIcon"))
@@ -117,12 +127,26 @@ const componentLibrary: ComponentDefinition[] = [
   component("textLabel", "Text Label", "Text", "Type", 180, 34, { text: "Some text", fontSize: 18 }),
   component("textTitle", "Text Title", "Text", "Heading1", 240, 48, { text: "A Big Title", fontSize: 28 }),
   component("textSubtitle", "Text Subtitle", "Text", "Heading2", 220, 42, { text: "A Subtitle", fontSize: 22 }),
-  component("textParagraph", "Text Paragraph", "Text", "Pilcrow", 280, 96, { text: "A paragraph of text.\nA second row of text.", fontSize: 14 }),
+  component("textParagraph", "Text Paragraph", "Text", "Pilcrow", 275, 80, {
+    text: "A *paragraph* of {color:red}text{color} with an [unassigned link].\nA _second_ &row& of ~text~ with a [web link]\nAn icon :circle-plus-solid: inline with text.",
+    fontSize: 13,
+  }),
   component("link", "Link", "Text", "Link", 120, 34, { text: "a link", textColor: "#2563eb", fontSize: 24 }),
   component("squigglyParagraph", "Squiggly Paragraph", "Text", "AlignLeft", 250, 86, { text: "A paragraph of text.\nA second row of text." }),
 
   component("checkbox", "Checkbox", "Forms", "checkbox", 150, 32, { text: "Checkbox", checked: false }),
-  component("checkboxList", "Checkbox List", "Forms", "checkboxList", 190, 118, { options: ["not selected", "selected", "disabled"], text: "Checkbox List" }),
+  component("checkboxList", "Checkbox List", "Forms", "checkboxList", 230, 168, {
+    options: [
+      "[ ] not selected",
+      "[x] selected",
+      "[-] indeterminate",
+      "-[ ] disabled-",
+      "-[x] disabled selected-",
+      "-[-] disabled indeterminate-",
+      "A row without a checkbox",
+    ],
+    text: "Checkbox List",
+  }),
   component("radioButton", "Radio Button", "Forms", "CircleDot", 160, 32, { text: "Radio Button", checked: false }),
   component("radioButtonGroup", "Radio Button Group", "Forms", "ListChecks", 210, 126, { options: ["option 1", "option 2", "option 3"], text: "Radio Group" }),
   component("dropdown", "Dropdown", "Forms", "dropdown", 180, 40, { text: "Choose...", options: ["First", "Second", "Third"] }),
@@ -283,6 +307,7 @@ type ProjectChangeOptions = {
 
 type MenuActions = {
   newProject: () => void;
+  newWireframe: () => void;
   openProject: () => void;
   saveProject: (saveAs?: boolean) => Promise<boolean>;
   undoProjectChange: () => void;
@@ -393,6 +418,8 @@ function createDefaultProject(): MockupProject {
       {
         id: firstWireframeId,
         name: "Wireframe 1",
+        background: "white",
+        showGrid: true,
         nodes: [],
       },
     ],
@@ -497,6 +524,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => readRecentProjects());
   const [activeComponentCategory, setActiveComponentCategory] = useState<ComponentCategory>("All");
+  const [quickAccessQuery, setQuickAccessQuery] = useState("");
+  const [quickAccessOpen, setQuickAccessOpen] = useState(false);
+  const [quickAccessIndex, setQuickAccessIndex] = useState(0);
   const [leftCollapsed, setLeftCollapsed] = useState<boolean>(() => localStorage.getItem(leftPaneCollapsedKey) === "true");
   const [rightCollapsed, setRightCollapsed] = useState<boolean>(() => localStorage.getItem(rightPaneCollapsedKey) === "true");
 
@@ -508,6 +538,7 @@ function App() {
   }, [rightCollapsed]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const suppressNextLibraryClickRef = useRef(false);
+  const openingProjectRef = useRef(false);
   const attemptedStartupRestoreRef = useRef(false);
   const dirtyRef = useRef(false);
   const activeProjectHistoryGroupKeyRef = useRef<string | null>(null);
@@ -528,10 +559,25 @@ function App() {
     [project.activeWireframeId, project.wireframes],
   );
   const selectedNode = activeWireframe?.nodes.find((node) => node.id === selectedId) ?? null;
+  const activeWireframeBackground = wireframeBackground(activeWireframe);
+  const activeWireframeShowGrid = wireframeShowGrid(activeWireframe);
   const visibleComponentLibrary = useMemo(
     () => componentLibrary.filter((definition) => activeComponentCategory === "All" || definition.category === activeComponentCategory),
     [activeComponentCategory],
   );
+  const quickAccessMatches = useMemo(() => {
+    const query = quickAccessQuery.trim().toLowerCase();
+    const matches = query
+      ? componentLibrary.filter((definition) =>
+          `${definition.label} ${definition.category} ${definition.kind}`.toLowerCase().includes(query),
+        )
+      : componentLibrary.slice(0, 8);
+    return matches.slice(0, 8);
+  }, [quickAccessQuery]);
+
+  useEffect(() => {
+    setQuickAccessIndex(0);
+  }, [quickAccessQuery]);
 
   useEffect(() => {
     void syncEditMenuState({
@@ -672,6 +718,13 @@ function App() {
       }), options);
     },
     [mutateProject],
+  );
+
+  const updateActiveWireframe = useCallback(
+    (patch: Partial<Wireframe>) => {
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, ...patch }));
+    },
+    [mutateActiveWireframe],
   );
 
   const addNode = useCallback(
@@ -951,22 +1004,28 @@ function App() {
   }, [handleCloseRequest]);
 
   const openProject = useCallback(async () => {
+    if (openingProjectRef.current) return;
     if (!confirmLosingUnsavedChanges()) return;
-    const chosen = await openDialog({
-      title: "Open Moqira Project",
-      multiple: false,
-      filters: [{ name: "Moqira Project", extensions: ["moqira", "dsmockup", "json"] }],
-    });
-    if (!chosen || Array.isArray(chosen)) return;
-    const loaded = await openProjectFile(chosen);
-    const projectName = projectNameFromPath(chosen);
-    resetProjectHistory({ ...loaded, name: projectName });
-    setProjectPath(chosen);
-    localStorage.setItem(projectPathKey, chosen);
-    await writeLastProjectPath(chosen);
-    setRecentProjects((current) => addRecentProject(current, chosen, projectName));
-    setSelectedId(null);
-    setStatus(`Opened ${projectName}`);
+    openingProjectRef.current = true;
+    try {
+      const chosen = await openDialog({
+        title: "Open Moqira Project",
+        multiple: false,
+        filters: [{ name: "Moqira Project", extensions: ["moqira", "dsmockup", "json"] }],
+      });
+      if (!chosen || Array.isArray(chosen)) return;
+      const loaded = await openProjectFile(chosen);
+      const projectName = projectNameFromPath(chosen);
+      resetProjectHistory({ ...loaded, name: projectName });
+      setProjectPath(chosen);
+      localStorage.setItem(projectPathKey, chosen);
+      await writeLastProjectPath(chosen);
+      setRecentProjects((current) => addRecentProject(current, chosen, projectName));
+      setSelectedId(null);
+      setStatus(`Opened ${projectName}`);
+    } finally {
+      openingProjectRef.current = false;
+    }
   }, [confirmLosingUnsavedChanges, resetProjectHistory]);
 
   const openRecentProject = useCallback(
@@ -1005,6 +1064,7 @@ function App() {
 
   const menuActionsRef = useRef<MenuActions>({
     newProject: () => {},
+    newWireframe: () => {},
     openProject: () => {},
     saveProject: async () => false,
     undoProjectChange: () => {},
@@ -1024,6 +1084,7 @@ function App() {
 
   menuActionsRef.current = {
     newProject,
+    newWireframe: addWireframe,
     openProject,
     saveProject,
     undoProjectChange,
@@ -1047,29 +1108,38 @@ function App() {
   useEffect(() => {
     if (!isTauri()) return;
     const cleanups: Array<() => void> = [];
+    let disposed = false;
+    const addMenuListener = <T,>(eventName: string, handler: (event: { payload: T }) => void) => {
+      void listen<T>(eventName, handler).then((cleanup) => {
+        if (disposed) cleanup();
+        else cleanups.push(cleanup);
+      });
+    };
 
-    void listen("menu-new-project", () => menuActionsRef.current.newProject()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-open-project", () => void menuActionsRef.current.openProject()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-save-project", () => void menuActionsRef.current.saveProject(false)).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-save-project-as", () => void menuActionsRef.current.saveProject(true)).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-undo-project", () => menuActionsRef.current.undoProjectChange()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-redo-project", () => menuActionsRef.current.redoProjectChange()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-cut-node", () => menuActionsRef.current.cutNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-copy-node", () => menuActionsRef.current.copyNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-paste-node", () => menuActionsRef.current.pasteNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-delete-node", () => menuActionsRef.current.deleteNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-duplicate-node", () => menuActionsRef.current.duplicateNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-select-none", () => menuActionsRef.current.selectNone()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-front", () => menuActionsRef.current.layerNode("front")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-forward", () => menuActionsRef.current.layerNode("forward")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-backward", () => menuActionsRef.current.layerNode("backward")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-back", () => menuActionsRef.current.layerNode("back")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-lock-node", () => menuActionsRef.current.lockNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-unlock-all-nodes", () => menuActionsRef.current.unlockAllNodes()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-open-settings", () => menuActionsRef.current.openSettings()).then((cleanup) => cleanups.push(cleanup));
-    void listen<string>("menu-open-recent-project", (event) => menuActionsRef.current.openRecentProject(event.payload)).then((cleanup) => cleanups.push(cleanup));
+    addMenuListener("menu-new-project", () => menuActionsRef.current.newProject());
+    addMenuListener("menu-new-wireframe", () => menuActionsRef.current.newWireframe());
+    addMenuListener("menu-open-project", () => void menuActionsRef.current.openProject());
+    addMenuListener("menu-save-project", () => void menuActionsRef.current.saveProject(false));
+    addMenuListener("menu-save-project-as", () => void menuActionsRef.current.saveProject(true));
+    addMenuListener("menu-undo-project", () => menuActionsRef.current.undoProjectChange());
+    addMenuListener("menu-redo-project", () => menuActionsRef.current.redoProjectChange());
+    addMenuListener("menu-cut-node", () => menuActionsRef.current.cutNode());
+    addMenuListener("menu-copy-node", () => menuActionsRef.current.copyNode());
+    addMenuListener("menu-paste-node", () => menuActionsRef.current.pasteNode());
+    addMenuListener("menu-delete-node", () => menuActionsRef.current.deleteNode());
+    addMenuListener("menu-duplicate-node", () => menuActionsRef.current.duplicateNode());
+    addMenuListener("menu-select-none", () => menuActionsRef.current.selectNone());
+    addMenuListener("menu-layer-front", () => menuActionsRef.current.layerNode("front"));
+    addMenuListener("menu-layer-forward", () => menuActionsRef.current.layerNode("forward"));
+    addMenuListener("menu-layer-backward", () => menuActionsRef.current.layerNode("backward"));
+    addMenuListener("menu-layer-back", () => menuActionsRef.current.layerNode("back"));
+    addMenuListener("menu-lock-node", () => menuActionsRef.current.lockNode());
+    addMenuListener("menu-unlock-all-nodes", () => menuActionsRef.current.unlockAllNodes());
+    addMenuListener("menu-open-settings", () => menuActionsRef.current.openSettings());
+    addMenuListener<string>("menu-open-recent-project", (event) => menuActionsRef.current.openRecentProject(event.payload));
 
     return () => {
+      disposed = true;
       cleanups.forEach((cleanup) => cleanup());
     };
   }, []);
@@ -1262,15 +1332,15 @@ function App() {
     updateNode,
   ]);
 
-  const addWireframe = () => {
+  function addWireframe() {
     const id = createId("wireframe");
     mutateProject((current) => ({
       ...current,
       activeWireframeId: id,
-      wireframes: [...current.wireframes, { id, name: `Wireframe ${current.wireframes.length + 1}`, nodes: [] }],
+      wireframes: [...current.wireframes, { id, name: `Wireframe ${current.wireframes.length + 1}`, background: "white", showGrid: true, nodes: [] }],
     }));
     setSelectedId(null);
-  };
+  }
 
   const duplicateWireframe = (wireframeId = activeWireframe?.id) => {
     const sourceWireframe = project.wireframes.find((wireframe) => wireframe.id === wireframeId);
@@ -1284,6 +1354,8 @@ function App() {
         {
           id,
           name: `${sourceWireframe.name} copy`,
+          background: wireframeBackground(sourceWireframe),
+          showGrid: wireframeShowGrid(sourceWireframe),
           nodes: sourceWireframe.nodes.map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
         },
       ],
@@ -1322,6 +1394,12 @@ function App() {
     ? activeWireframe?.nodes.find((node) => node.id === contextMenu.targetId)?.name ?? "Object"
     : "Canvas";
   const projectDisplayName = projectPath ? projectNameFromPath(projectPath) : "Unsaved Project";
+  const addQuickAccessNode = (definition: ComponentDefinition) => {
+    addNode(definition.kind);
+    setQuickAccessQuery("");
+    setQuickAccessOpen(false);
+    setQuickAccessIndex(0);
+  };
 
   return (
     <div className="app-shell">
@@ -1345,19 +1423,73 @@ function App() {
           </strong>
         </div>
         <div className="titlebar-actions">
-          <button
-            type="button"
-            onClick={newProject}
-            title="New project"
-          >
-            <FilePlus2 size={16} />
-          </button>
-          <button type="button" onClick={openProject} title="Open project">
-            <FolderOpen size={16} />
-          </button>
-          <button type="button" onClick={() => void saveProject(false)} title="Save project">
-            <Save size={16} />
-          </button>
+          <div className="quick-access" role="combobox" aria-expanded={quickAccessOpen} aria-controls="quick-access-results">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              value={quickAccessQuery}
+              placeholder="Quick Access"
+              aria-label="Quick Access components"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              onFocus={() => setQuickAccessOpen(true)}
+              onBlur={() => window.setTimeout(() => setQuickAccessOpen(false), 120)}
+              onChange={(event) => {
+                setQuickAccessQuery(event.target.value);
+                setQuickAccessOpen(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setQuickAccessOpen(true);
+                  setQuickAccessIndex((index) => clamp(index + 1, 0, Math.max(quickAccessMatches.length - 1, 0)));
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setQuickAccessOpen(true);
+                  setQuickAccessIndex((index) => clamp(index - 1, 0, Math.max(quickAccessMatches.length - 1, 0)));
+                }
+                if (event.key === "Enter") {
+                  const definition = quickAccessMatches[quickAccessIndex];
+                  if (!definition) return;
+                  event.preventDefault();
+                  addQuickAccessNode(definition);
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setQuickAccessOpen(false);
+                }
+              }}
+            />
+            {quickAccessOpen ? (
+              <div className="quick-access-results" id="quick-access-results" role="listbox">
+                {quickAccessMatches.length ? (
+                  quickAccessMatches.map((definition, index) => {
+                    const Icon = componentIcon(definition.icon);
+                    return (
+                      <button
+                        key={definition.kind}
+                        type="button"
+                        role="option"
+                        aria-selected={index === quickAccessIndex}
+                        className={index === quickAccessIndex ? "is-active" : ""}
+                        onMouseEnter={() => setQuickAccessIndex(index)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => addQuickAccessNode(definition)}
+                      >
+                        <Icon size={16} />
+                        <span>{definition.label}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="quick-access-empty">No components found</div>
+                )}
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             className="titlebar-pane-toggle"
@@ -1469,7 +1601,9 @@ function App() {
             </div>
           </div>
 
-          <div className="canvas-scroll">
+          <div
+            className={`canvas-scroll canvas-bg-${activeWireframeBackground}${activeWireframeShowGrid ? " has-grid" : ""}`}
+          >
             <div
               ref={canvasRef}
               className="canvas"
@@ -1530,6 +1664,8 @@ function App() {
           <aside className="right-pane">
             <PropertiesPane
               selectedNode={selectedNode}
+              activeWireframe={activeWireframe}
+              onWireframeChange={updateActiveWireframe}
               onNodeChange={(patch, options) => selectedNode && updateNode(selectedNode.id, patch, options)}
               onNodeChangeEnd={endProjectHistoryGroup}
               onLayer={(action) => layerNode(selectedId, action)}
@@ -1644,7 +1780,13 @@ function CanvasItem({
     <div
       className={`canvas-node node-${node.kind}${selected ? " is-selected" : ""}${node.locked ? " is-locked" : ""}`}
       style={style}
-      onPointerDown={onMoveStart}
+      onPointerDown={(event) => {
+        if (event.button !== 0) {
+          event.preventDefault();
+          return;
+        }
+        onMoveStart(event);
+      }}
       onClick={(event) => {
         event.stopPropagation();
         onSelect();
@@ -1678,6 +1820,62 @@ function nodeOptions(node: CanvasNode, fallback: string[] = []) {
 function nodePercent(node: CanvasNode, fallback = 45) {
   const value = Number(node.value ?? fallback);
   return clamp(Number.isFinite(value) ? value : fallback, 0, 100);
+}
+
+type CheckboxListRow =
+  | { kind: "checkbox"; checked: boolean; indeterminate: boolean; disabled: boolean; text: string }
+  | { kind: "text"; text: string };
+
+function parseCheckboxListRow(row: string): CheckboxListRow {
+  const disabledMatch = row.match(/^-\[( |x|X|-)\]\s*(.*)-$/);
+  const enabledMatch = row.match(/^\[( |x|X|-)\]\s*(.*)$/);
+  const match = disabledMatch ?? enabledMatch;
+  if (!match) return { kind: "text", text: row };
+  const marker = match[1].toLowerCase();
+  return {
+    kind: "checkbox",
+    checked: marker === "x",
+    indeterminate: marker === "-",
+    disabled: Boolean(disabledMatch),
+    text: match[2],
+  };
+}
+
+function iconNameFromMarkdown(name: string) {
+  return name
+    .split("-")
+    .filter((part) => part && part !== "solid")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+}
+
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(\{color:([^}]+)\}([\s\S]*?)\{color\}|\[([^\]]+)\]|:([a-z0-9-]+):|\*([^*\n]+)\*|_([^_\n]+)_|&([^&\n]+)&|~([^~\n]+)~)/gi;
+  let cursor = 0;
+  let index = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index === undefined) continue;
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+    const key = `md-${index++}`;
+    if (match[2] && match[3]) nodes.push(<span key={key} style={{ color: match[2] }}>{match[3]}</span>);
+    else if (match[4]) nodes.push(<span key={key} className="mock-link">{match[4]}</span>);
+    else if (match[5]) {
+      const Icon = getLucideIcon(iconNameFromMarkdown(match[5]));
+      nodes.push(<Icon key={key} className="inline-markdown-icon" size="1em" />);
+    } else if (match[6]) nodes.push(<em key={key}>{match[6]}</em>);
+    else if (match[7]) nodes.push(<em key={key}>{match[7]}</em>);
+    else if (match[8]) nodes.push(<u key={key}>{match[8]}</u>);
+    else if (match[9]) nodes.push(<s key={key}>{match[9]}</s>);
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
+}
+
+function extractMarkdownLinks(text: string) {
+  const names = [...text.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1].trim()).filter(Boolean);
+  return [...new Set(names)];
 }
 
 function NodeContent({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: Partial<CanvasNode>) => void }) {
@@ -1717,6 +1915,17 @@ function TextVisual({ node }: { node: CanvasNode }) {
       </div>
     );
   }
+  if (node.kind === "textParagraph") {
+    return (
+      <div className="editable-node-text text-visual text-visual-textParagraph">
+        {text.split("\n").map((line, index) => (
+          <span key={`${line}-${index}`} className="markdown-line">
+            {renderInlineMarkdown(line)}
+          </span>
+        ))}
+      </div>
+    );
+  }
   return <div className={`editable-node-text text-visual text-visual-${node.kind}`}>{text}</div>;
 }
 
@@ -1724,7 +1933,7 @@ function FormVisual({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: Pa
   if (node.kind === "checkbox") {
     return (
       <label className="checkbox-node">
-        <input type="checkbox" checked={Boolean(node.checked)} onChange={(event) => onUpdate({ checked: event.target.checked })} />
+        <span className={node.checked ? "mock-checkbox is-checked" : "mock-checkbox"} />
         <span>{node.text}</span>
       </label>
     );
@@ -1740,12 +1949,18 @@ function FormVisual({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: Pa
   if (node.kind === "checkboxList" || node.kind === "radioButtonGroup") {
     return (
       <div className="checkbox-list-node">
-        {nodeOptions(node, ["Option one", "Option two", "Option three"]).map((option, index) => (
-          <label key={`${option}-${index}`}>
-            {node.kind === "radioButtonGroup" ? <span className={index === 0 ? "radio-dot is-checked" : "radio-dot"} /> : <input type="checkbox" defaultChecked={index === 1} />}
-            <span>{option}</span>
-          </label>
-        ))}
+        {nodeOptions(node, ["Option one", "Option two", "Option three"]).map((option, index) => {
+          const checkboxRow = parseCheckboxListRow(option);
+          return (
+            <div key={`${option}-${index}`} className={checkboxRow.kind === "checkbox" && checkboxRow.disabled ? "is-disabled" : ""}>
+              {node.kind === "radioButtonGroup" ? <span className={index === 0 ? "radio-dot is-checked" : "radio-dot"} /> : null}
+              {node.kind === "checkboxList" && checkboxRow.kind === "checkbox" ? (
+                <span className={`mock-checkbox${checkboxRow.checked ? " is-checked" : ""}${checkboxRow.indeterminate ? " is-indeterminate" : ""}`} />
+              ) : null}
+              <span>{checkboxRow.text}</span>
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -1952,71 +2167,201 @@ function FloatingTextEditor({
 
 function PropertiesPane({
   selectedNode,
+  activeWireframe,
+  onWireframeChange,
   onNodeChange,
   onNodeChangeEnd,
   onLayer,
 }: {
   selectedNode: CanvasNode | null;
+  activeWireframe: Wireframe | undefined;
+  onWireframeChange: (patch: Partial<Wireframe>) => void;
   onNodeChange: (patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => void;
   onNodeChangeEnd: () => void;
   onLayer: (action: "front" | "back" | "forward" | "backward") => void;
 }) {
-  if (!selectedNode) return <div className="properties is-empty" />;
+  if (!selectedNode) {
+    const background = wireframeBackground(activeWireframe);
+    const showGrid = wireframeShowGrid(activeWireframe);
+    return (
+      <div className="properties canvas-properties">
+        <div className="properties-title">
+          <h2>Canvas</h2>
+        </div>
+        <section className="property-section">
+          <h3>Background</h3>
+          <div className="segmented-property">
+            <button
+              type="button"
+              className={background === "white" ? "is-active" : ""}
+              onClick={() => onWireframeChange({ background: "white" })}
+            >
+              White
+            </button>
+            <button
+              type="button"
+              className={background === "black" ? "is-active" : ""}
+              onClick={() => onWireframeChange({ background: "black" })}
+            >
+              Black
+            </button>
+          </div>
+        </section>
+        <section className="property-section">
+          <h3>Grid</h3>
+          <label className="toggle-setting">
+            <input
+              type="checkbox"
+              checked={showGrid}
+              onChange={(event) => onWireframeChange({ showGrid: event.target.checked })}
+            />
+            <span>Show grid lines</span>
+          </label>
+        </section>
+      </div>
+    );
+  }
 
   const groupedChange = (property: keyof CanvasNode, patch: Partial<CanvasNode>) => {
     onNodeChange(patch, { groupKey: `property:${selectedNode.id}:${property}` });
   };
+  const isTextNode = ["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(selectedNode.kind);
+  const markdownLinks = extractMarkdownLinks(selectedNode.text ?? "");
 
   return (
     <div className="properties">
-      <h2>{selectedNode.name}</h2>
-      <div className="property-grid">
-        <label>
-          X
-          <input type="number" value={selectedNode.x} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("x", { x: Number(event.target.value) })} />
-        </label>
-        <label>
-          Y
-          <input type="number" value={selectedNode.y} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("y", { y: Number(event.target.value) })} />
-        </label>
-        <label>
-          W
-          <input type="number" value={selectedNode.width} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("width", { width: Number(event.target.value) })} />
-        </label>
-        <label>
-          H
-          <input type="number" value={selectedNode.height} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("height", { height: Number(event.target.value) })} />
-        </label>
+      <div className="properties-title">
+        <h2>{selectedNode.name}</h2>
+        <ChevronDown size={20} />
       </div>
-      <div className="layer-buttons">
-        <button type="button" onClick={() => onLayer("back")} title="Send to back"><SendToBack size={16} /></button>
-        <button type="button" onClick={() => onLayer("backward")} title="Send backward"><SendToBack size={16} /></button>
-        <button type="button" onClick={() => onLayer("forward")} title="Bring forward"><BringToFront size={16} /></button>
-        <button type="button" onClick={() => onLayer("front")} title="Bring to front"><BringToFront size={16} /></button>
-      </div>
-      <label>
-        Fill
-        <input type="color" value={selectedNode.fill ?? "#ffffff"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("fill", { fill: event.target.value })} />
-      </label>
-      <label>
-        Stroke
-        <input type="color" value={selectedNode.stroke ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("stroke", { stroke: event.target.value })} />
-      </label>
-      <label>
+      <section className="property-section">
+        <div className="property-row">
+          <strong>Position</strong>
+          <label>
+            <input type="number" value={selectedNode.x} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("x", { x: Number(event.target.value) })} />
+            <span>X</span>
+          </label>
+          <label>
+            <input type="number" value={selectedNode.y} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("y", { y: Number(event.target.value) })} />
+            <span>Y</span>
+          </label>
+        </div>
+        <div className="property-row">
+          <strong>Size</strong>
+          <label>
+            <input type="number" value={selectedNode.width} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("width", { width: Number(event.target.value) })} />
+            <span>Width</span>
+          </label>
+          <label>
+            <input type="number" value={selectedNode.height} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("height", { height: Number(event.target.value) })} />
+            <span>Height</span>
+          </label>
+        </div>
+      </section>
+      <section className="property-section">
+        <h3>Layering</h3>
+        <div className="layer-button-groups">
+          <button type="button" onClick={() => onLayer("back")} title="Send to back"><SendToBack size={18} /><span>Back</span></button>
+          <button type="button" onClick={() => onLayer("front")} title="Bring to front"><BringToFront size={18} /><span>Front</span></button>
+          <button type="button" onClick={() => onLayer("backward")} title="Send backward"><SendToBack size={18} /><span>Backward</span></button>
+          <button type="button" onClick={() => onLayer("forward")} title="Bring forward"><BringToFront size={18} /><span>Forward</span></button>
+        </div>
+      </section>
+      {!isTextNode ? (
+        <>
+          <label>
+            Fill
+            <input type="color" value={selectedNode.fill ?? "#ffffff"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("fill", { fill: event.target.value })} />
+          </label>
+          <label>
+            Stroke
+            <input type="color" value={selectedNode.stroke ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("stroke", { stroke: event.target.value })} />
+          </label>
+        </>
+      ) : null}
+      <label className="property-swatch-row">
         Text Color
         <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
       </label>
-      <label>
-        Font Size
-        <input
-          type="number"
-          min={8}
-          max={72}
-          value={selectedNode.fontSize ?? 14}
-          onBlur={onNodeChangeEnd}
-          onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
-        />
-      </label>
+      {isTextNode ? (
+        <>
+          <section className="property-section">
+            <div className="property-section-heading">
+              <h3>Links</h3>
+              <button type="button">Hide</button>
+            </div>
+            <div className="links-editor">
+              {markdownLinks.map((link) => (
+                <div key={link} className="link-row">
+                  <span>{link}</span>
+                  <select defaultValue={link.toLowerCase().includes("web") ? "https://balsamiq.com" : ""}>
+                    <option value="">No Link</option>
+                    <option value="https://balsamiq.com">https://balsamiq.co...</option>
+                  </select>
+                </div>
+              ))}
+              <div className="link-row">
+                <span>Whole Control</span>
+                <select defaultValue="">
+                  <option value="">No Link</option>
+                  <option value="https://balsamiq.com">https://balsamiq.co...</option>
+                </select>
+              </div>
+            </div>
+          </section>
+          <section className="property-section">
+            <h3>State</h3>
+            <select defaultValue="normal">
+              <option value="normal">Normal</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </section>
+          <section className="property-section">
+            <h3>Text</h3>
+            <div className="text-toolbar">
+              <div className="toolbar-group">
+                <button type="button" title="Bold"><Bold size={18} /></button>
+                <button type="button" title="Italic"><Italic size={18} /></button>
+                <button type="button" title="Underline"><Underline size={18} /></button>
+              </div>
+              <div className="toolbar-group">
+                <button type="button" className="is-active" title="Align left"><AlignLeft size={18} /></button>
+                <button type="button" title="Align center"><AlignCenter size={18} /></button>
+                <button type="button" title="Align right"><AlignRight size={18} /></button>
+              </div>
+              <input
+                type="number"
+                min={8}
+                max={72}
+                value={selectedNode.fontSize ?? 14}
+                onBlur={onNodeChangeEnd}
+                onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
+              />
+            </div>
+          </section>
+        </>
+      ) : (
+        <>
+          <section className="property-section">
+            <h3>State</h3>
+            <select defaultValue="normal">
+              <option value="normal">Normal</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </section>
+          <label>
+            Font Size
+            <input
+              type="number"
+              min={8}
+              max={72}
+              value={selectedNode.fontSize ?? 14}
+              onBlur={onNodeChangeEnd}
+              onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
+            />
+          </label>
+        </>
+      )}
       {"value" in selectedNode ? (
         <label>
           Value
