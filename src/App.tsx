@@ -281,6 +281,25 @@ type ProjectChangeOptions = {
   groupKey?: string;
 };
 
+type MenuActions = {
+  newProject: () => void;
+  openProject: () => void;
+  saveProject: (saveAs?: boolean) => Promise<boolean>;
+  undoProjectChange: () => void;
+  redoProjectChange: () => void;
+  cutNode: () => void;
+  copyNode: () => void;
+  pasteNode: () => void;
+  deleteNode: () => void;
+  duplicateNode: () => void;
+  selectNone: () => void;
+  layerNode: (action: "front" | "back" | "forward" | "backward") => void;
+  lockNode: () => void;
+  unlockAllNodes: () => void;
+  openSettings: () => void;
+  openRecentProject: (path: string) => void;
+};
+
 function editableTextField(node: CanvasNode): "text" | "options" | null {
   const optionKinds: ComponentKind[] = [
     "accordion",
@@ -984,55 +1003,76 @@ function App() {
     setStatus("Created new project");
   }, [confirmLosingUnsavedChanges, resetProjectHistory]);
 
+  const menuActionsRef = useRef<MenuActions>({
+    newProject: () => {},
+    openProject: () => {},
+    saveProject: async () => false,
+    undoProjectChange: () => {},
+    redoProjectChange: () => {},
+    cutNode: () => {},
+    copyNode: () => {},
+    pasteNode: () => {},
+    deleteNode: () => {},
+    duplicateNode: () => {},
+    selectNone: () => {},
+    layerNode: () => {},
+    lockNode: () => {},
+    unlockAllNodes: () => {},
+    openSettings: () => {},
+    openRecentProject: () => {},
+  });
+
+  menuActionsRef.current = {
+    newProject,
+    openProject,
+    saveProject,
+    undoProjectChange,
+    redoProjectChange,
+    cutNode,
+    copyNode,
+    pasteNode,
+    deleteNode,
+    duplicateNode,
+    selectNone,
+    layerNode: (action) => layerNode(selectedId, action),
+    lockNode,
+    unlockAllNodes,
+    openSettings: () => {
+      setSelectedId(null);
+      setSettingsOpen(true);
+    },
+    openRecentProject: (path) => void openRecentProject(path),
+  };
+
   useEffect(() => {
     if (!isTauri()) return;
     const cleanups: Array<() => void> = [];
 
-    void listen("menu-new-project", () => newProject()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-open-project", () => void openProject()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-save-project", () => void saveProject(false)).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-save-project-as", () => void saveProject(true)).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-undo-project", () => undoProjectChange()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-redo-project", () => redoProjectChange()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-cut-node", () => cutNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-copy-node", () => copyNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-paste-node", () => pasteNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-delete-node", () => deleteNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-duplicate-node", () => duplicateNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-select-none", () => selectNone()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-front", () => layerNode(selectedId, "front")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-forward", () => layerNode(selectedId, "forward")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-backward", () => layerNode(selectedId, "backward")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-layer-back", () => layerNode(selectedId, "back")).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-lock-node", () => lockNode()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-unlock-all-nodes", () => unlockAllNodes()).then((cleanup) => cleanups.push(cleanup));
-    void listen("menu-open-settings", () => {
-      setSelectedId(null);
-      setSettingsOpen(true);
-    }).then((cleanup) => cleanups.push(cleanup));
-    void listen<string>("menu-open-recent-project", (event) => void openRecentProject(event.payload)).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-new-project", () => menuActionsRef.current.newProject()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-open-project", () => void menuActionsRef.current.openProject()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-save-project", () => void menuActionsRef.current.saveProject(false)).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-save-project-as", () => void menuActionsRef.current.saveProject(true)).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-undo-project", () => menuActionsRef.current.undoProjectChange()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-redo-project", () => menuActionsRef.current.redoProjectChange()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-cut-node", () => menuActionsRef.current.cutNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-copy-node", () => menuActionsRef.current.copyNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-paste-node", () => menuActionsRef.current.pasteNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-delete-node", () => menuActionsRef.current.deleteNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-duplicate-node", () => menuActionsRef.current.duplicateNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-select-none", () => menuActionsRef.current.selectNone()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-front", () => menuActionsRef.current.layerNode("front")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-forward", () => menuActionsRef.current.layerNode("forward")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-backward", () => menuActionsRef.current.layerNode("backward")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-back", () => menuActionsRef.current.layerNode("back")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-lock-node", () => menuActionsRef.current.lockNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-unlock-all-nodes", () => menuActionsRef.current.unlockAllNodes()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-open-settings", () => menuActionsRef.current.openSettings()).then((cleanup) => cleanups.push(cleanup));
+    void listen<string>("menu-open-recent-project", (event) => menuActionsRef.current.openRecentProject(event.payload)).then((cleanup) => cleanups.push(cleanup));
 
     return () => {
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [
-    copyNode,
-    cutNode,
-    deleteNode,
-    duplicateNode,
-    layerNode,
-    lockNode,
-    newProject,
-    openProject,
-    openRecentProject,
-    pasteNode,
-    redoProjectChange,
-    saveProject,
-    selectNone,
-    selectedId,
-    undoProjectChange,
-    unlockAllNodes,
-  ]);
+  }, []);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
