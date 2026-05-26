@@ -7,6 +7,15 @@ export type RecentProjectPayload = {
   openedAt: number;
 };
 
+export type EditMenuStatePayload = {
+  canUndo: boolean;
+  canRedo: boolean;
+  hasSelection: boolean;
+  canPaste: boolean;
+  canLockSelection: boolean;
+  hasLockedNodes: boolean;
+};
+
 const demoProjectKey = "moqira-demo-project";
 const legacyDemoProjectKey = "mockups-demo-project";
 const lastProjectPathKey = "moqira-last-project-path";
@@ -55,6 +64,11 @@ export async function writeLastProjectPath(path: string | null): Promise<void> {
 export async function syncRecentProjects(recentProjects: RecentProjectPayload[]): Promise<void> {
   if (!isTauri()) return;
   await invoke("sync_recent_projects", { recentProjects });
+}
+
+export async function syncEditMenuState(state: EditMenuStatePayload): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("sync_edit_menu_state", { state });
 }
 
 export async function revealProject(path: string) {

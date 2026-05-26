@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::menu::{AboutMetadataBuilder, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadataBuilder, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WindowEvent};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,6 +26,17 @@ struct RecentProject {
     path: String,
     name: String,
     opened_at: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EditMenuState {
+    can_undo: bool,
+    can_redo: bool,
+    has_selection: bool,
+    can_paste: bool,
+    can_lock_selection: bool,
+    has_locked_nodes: bool,
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -113,18 +124,39 @@ fn build_app_menu(handle: &tauri::AppHandle, recent_projects: &[RecentProject]) 
         ],
     )?;
 
+    let arrange_menu = Submenu::with_id_and_items(
+        handle,
+        "menu_arrange",
+        "Arrange",
+        true,
+        &[
+            &MenuItem::with_id(handle, "menu_layer_front", "Bring to Front", false, Some("Alt+Shift+Cmd+Up"))?,
+            &MenuItem::with_id(handle, "menu_layer_forward", "Bring Forward", false, Some("Alt+Cmd+Up"))?,
+            &MenuItem::with_id(handle, "menu_layer_backward", "Send Backward", false, Some("Alt+Cmd+Down"))?,
+            &MenuItem::with_id(handle, "menu_layer_back", "Send to Back", false, Some("Alt+Shift+Cmd+Down"))?,
+        ],
+    )?;
+
     let edit_menu = Submenu::with_items(
         handle,
         "Edit",
         true,
         &[
-            &MenuItem::with_id(handle, "menu_undo_project", "Undo", true, Some("Cmd+Z"))?,
-            &MenuItem::with_id(handle, "menu_redo_project", "Redo", true, Some("Shift+Cmd+Z"))?,
+            &MenuItem::with_id(handle, "menu_undo_project", "Undo", false, Some("Cmd+Z"))?,
+            &MenuItem::with_id(handle, "menu_redo_project", "Redo", false, Some("Shift+Cmd+Z"))?,
             &PredefinedMenuItem::separator(handle)?,
-            &PredefinedMenuItem::cut(handle, None)?,
-            &PredefinedMenuItem::copy(handle, None)?,
-            &PredefinedMenuItem::paste(handle, None)?,
-            &PredefinedMenuItem::select_all(handle, None)?,
+            &MenuItem::with_id(handle, "menu_cut_node", "Cut", false, Some("Cmd+X"))?,
+            &MenuItem::with_id(handle, "menu_copy_node", "Copy", false, Some("Cmd+C"))?,
+            &MenuItem::with_id(handle, "menu_paste_node", "Paste", false, Some("Cmd+V"))?,
+            &MenuItem::with_id(handle, "menu_delete_node", "Delete", false, Some("Backspace"))?,
+            &MenuItem::with_id(handle, "menu_duplicate_node", "Duplicate", false, Some("Cmd+D"))?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(handle, "menu_select_none", "Select None", false, Some("Shift+Cmd+A"))?,
+            &PredefinedMenuItem::separator(handle)?,
+            &arrange_menu,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(handle, "menu_lock_node", "Lock", false, Some("Cmd+2"))?,
+            &MenuItem::with_id(handle, "menu_unlock_all_nodes", "Unlock All", false, Some("Cmd+3"))?,
         ],
     )?;
 
@@ -147,6 +179,37 @@ fn rebuild_app_menu(app: &tauri::AppHandle) -> Result<(), String> {
     let settings = read_settings(app).unwrap_or_default();
     let menu = build_app_menu(app, &settings.recent_projects).map_err(|error| error.to_string())?;
     app.set_menu(menu).map(|_| ()).map_err(|error| error.to_string())
+}
+
+fn set_menu_item_enabled(item: &MenuItemKind<tauri::Wry>, enabled: bool) -> tauri::Result<()> {
+    match item {
+        MenuItemKind::MenuItem(item) => item.set_enabled(enabled),
+        MenuItemKind::Submenu(item) => item.set_enabled(enabled),
+        MenuItemKind::Predefined(_) => Ok(()),
+        MenuItemKind::Check(item) => item.set_enabled(enabled),
+        MenuItemKind::Icon(item) => item.set_enabled(enabled),
+    }
+}
+
+fn set_menu_tree_item_enabled(items: &[MenuItemKind<tauri::Wry>], id: &str, enabled: bool) -> tauri::Result<()> {
+    for item in items {
+        if item.id() == &id {
+            set_menu_item_enabled(item, enabled)?;
+            return Ok(());
+        }
+        if let MenuItemKind::Submenu(submenu) = item {
+            set_menu_tree_item_enabled(&submenu.items()?, id, enabled)?;
+        }
+    }
+    Ok(())
+}
+
+fn set_app_menu_item_enabled(app: &tauri::AppHandle, id: &str, enabled: bool) -> Result<(), String> {
+    if let Some(menu) = app.menu() {
+        set_menu_tree_item_enabled(&menu.items().map_err(|error| error.to_string())?, id, enabled)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -215,6 +278,22 @@ fn sync_recent_projects(app: tauri::AppHandle, recent_projects: Vec<RecentProjec
     rebuild_app_menu(&app)
 }
 
+#[tauri::command]
+fn sync_edit_menu_state(app: tauri::AppHandle, state: EditMenuState) -> Result<(), String> {
+    for id in ["menu_cut_node", "menu_copy_node", "menu_delete_node", "menu_duplicate_node", "menu_select_none"] {
+        set_app_menu_item_enabled(&app, id, state.has_selection)?;
+    }
+    for id in ["menu_arrange", "menu_layer_front", "menu_layer_forward", "menu_layer_backward", "menu_layer_back"] {
+        set_app_menu_item_enabled(&app, id, state.has_selection)?;
+    }
+    set_app_menu_item_enabled(&app, "menu_undo_project", state.can_undo)?;
+    set_app_menu_item_enabled(&app, "menu_redo_project", state.can_redo)?;
+    set_app_menu_item_enabled(&app, "menu_paste_node", state.can_paste)?;
+    set_app_menu_item_enabled(&app, "menu_lock_node", state.can_lock_selection)?;
+    set_app_menu_item_enabled(&app, "menu_unlock_all_nodes", state.has_locked_nodes)?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .menu(|handle| build_app_menu(handle, &[]))
@@ -238,6 +317,42 @@ fn main() {
                 }
                 "menu_redo_project" => {
                     let _ = app.emit("menu-redo-project", ());
+                }
+                "menu_cut_node" => {
+                    let _ = app.emit("menu-cut-node", ());
+                }
+                "menu_copy_node" => {
+                    let _ = app.emit("menu-copy-node", ());
+                }
+                "menu_paste_node" => {
+                    let _ = app.emit("menu-paste-node", ());
+                }
+                "menu_delete_node" => {
+                    let _ = app.emit("menu-delete-node", ());
+                }
+                "menu_duplicate_node" => {
+                    let _ = app.emit("menu-duplicate-node", ());
+                }
+                "menu_select_none" => {
+                    let _ = app.emit("menu-select-none", ());
+                }
+                "menu_layer_front" => {
+                    let _ = app.emit("menu-layer-front", ());
+                }
+                "menu_layer_forward" => {
+                    let _ = app.emit("menu-layer-forward", ());
+                }
+                "menu_layer_backward" => {
+                    let _ = app.emit("menu-layer-backward", ());
+                }
+                "menu_layer_back" => {
+                    let _ = app.emit("menu-layer-back", ());
+                }
+                "menu_lock_node" => {
+                    let _ = app.emit("menu-lock-node", ());
+                }
+                "menu_unlock_all_nodes" => {
+                    let _ = app.emit("menu-unlock-all-nodes", ());
                 }
                 "menu_settings" | "menu_file_settings" => {
                     let _ = app.emit("menu-open-settings", ());
@@ -267,7 +382,8 @@ fn main() {
             reveal_project,
             read_last_project_path,
             write_last_project_path,
-            sync_recent_projects
+            sync_recent_projects,
+            sync_edit_menu_state
         ])
         .setup(|app| {
             rebuild_app_menu(app.handle())?;

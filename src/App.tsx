@@ -29,7 +29,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isTauri, openProjectFile, readLastProjectPath, saveProjectFile, syncRecentProjects, writeLastProjectPath } from "./lib/mockupsApi";
+import { isTauri, openProjectFile, readLastProjectPath, saveProjectFile, syncEditMenuState, syncRecentProjects, writeLastProjectPath } from "./lib/mockupsApi";
 import type { CanvasNode, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
 
 const leftPaneCollapsedKey = "moqira-left-pane-collapsed";
@@ -514,6 +514,17 @@ function App() {
     [activeComponentCategory],
   );
 
+  useEffect(() => {
+    void syncEditMenuState({
+      canUndo: projectHistory.past.length > 0,
+      canRedo: projectHistory.future.length > 0,
+      hasSelection: Boolean(selectedNode),
+      canPaste: Boolean(clipboard),
+      canLockSelection: Boolean(selectedNode && !selectedNode.locked),
+      hasLockedNodes: Boolean(activeWireframe?.nodes.some((node) => node.locked)),
+    });
+  }, [activeWireframe?.nodes, clipboard, projectHistory.future.length, projectHistory.past.length, selectedNode]);
+
   const startTitlebarDrag = (event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement | null;
@@ -756,6 +767,28 @@ function App() {
     [mutateActiveWireframe, selectedId],
   );
 
+  const duplicateNode = useCallback(
+    (id: string | null = selectedId) => {
+      const node = activeWireframe?.nodes.find((item) => item.id === id);
+      if (!node) return;
+      const duplicate = {
+        ...node,
+        id: createId("node"),
+        x: node.x + 24,
+        y: node.y + 24,
+      };
+      mutateActiveWireframe((wireframe) => {
+        const index = wireframe.nodes.findIndex((item) => item.id === node.id);
+        const nodes = [...wireframe.nodes];
+        nodes.splice(index + 1, 0, duplicate);
+        return { ...wireframe, nodes };
+      });
+      setSelectedId(duplicate.id);
+      setStatus(`Duplicated ${node.name}`);
+    },
+    [activeWireframe?.nodes, mutateActiveWireframe, selectedId],
+  );
+
   const copyNode = useCallback(
     (id: string | null = selectedId) => {
       const node = activeWireframe?.nodes.find((item) => item.id === id);
@@ -801,6 +834,30 @@ function App() {
     },
     [mutateActiveWireframe],
   );
+
+  const lockNode = useCallback(
+    (id: string | null = selectedId) => {
+      if (!id) return;
+      updateNode(id, { locked: true });
+      setStatus("Locked component");
+    },
+    [selectedId, updateNode],
+  );
+
+  const unlockAllNodes = useCallback(() => {
+    mutateActiveWireframe((wireframe) => ({
+      ...wireframe,
+      nodes: wireframe.nodes.map((node) => (node.locked ? { ...node, locked: false } : node)),
+    }));
+    setStatus("Unlocked all components");
+  }, [mutateActiveWireframe]);
+
+  const selectNone = useCallback(() => {
+    setSelectedId(null);
+    setContextMenu(null);
+    setTextEditor(null);
+    setStatus("Cleared selection");
+  }, []);
 
   const selectWireframe = useCallback((wireframeId: string) => {
     endProjectHistoryGroup();
@@ -937,6 +994,18 @@ function App() {
     void listen("menu-save-project-as", () => void saveProject(true)).then((cleanup) => cleanups.push(cleanup));
     void listen("menu-undo-project", () => undoProjectChange()).then((cleanup) => cleanups.push(cleanup));
     void listen("menu-redo-project", () => redoProjectChange()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-cut-node", () => cutNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-copy-node", () => copyNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-paste-node", () => pasteNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-delete-node", () => deleteNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-duplicate-node", () => duplicateNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-select-none", () => selectNone()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-front", () => layerNode(selectedId, "front")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-forward", () => layerNode(selectedId, "forward")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-backward", () => layerNode(selectedId, "backward")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-layer-back", () => layerNode(selectedId, "back")).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-lock-node", () => lockNode()).then((cleanup) => cleanups.push(cleanup));
+    void listen("menu-unlock-all-nodes", () => unlockAllNodes()).then((cleanup) => cleanups.push(cleanup));
     void listen("menu-open-settings", () => {
       setSelectedId(null);
       setSettingsOpen(true);
@@ -946,7 +1015,24 @@ function App() {
     return () => {
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [newProject, openProject, openRecentProject, redoProjectChange, saveProject, undoProjectChange]);
+  }, [
+    copyNode,
+    cutNode,
+    deleteNode,
+    duplicateNode,
+    layerNode,
+    lockNode,
+    newProject,
+    openProject,
+    openRecentProject,
+    pasteNode,
+    redoProjectChange,
+    saveProject,
+    selectNone,
+    selectedId,
+    undoProjectChange,
+    unlockAllNodes,
+  ]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -1049,17 +1135,44 @@ function App() {
         event.preventDefault();
         void saveProject(event.shiftKey);
       }
-      if (modifier && event.key.toLowerCase() === "c") {
+      if (modifier && event.key.toLowerCase() === "c" && !isEditingText) {
         event.preventDefault();
         copyNode();
       }
-      if (modifier && event.key.toLowerCase() === "x") {
+      if (modifier && event.key.toLowerCase() === "x" && !isEditingText) {
         event.preventDefault();
         cutNode();
       }
-      if (modifier && event.key.toLowerCase() === "v") {
+      if (modifier && event.key.toLowerCase() === "v" && !isEditingText) {
         event.preventDefault();
         pasteNode();
+      }
+      if (modifier && event.key.toLowerCase() === "d" && !isEditingText) {
+        event.preventDefault();
+        duplicateNode();
+      }
+      if (modifier && event.shiftKey && event.key.toLowerCase() === "a" && !isEditingText) {
+        event.preventDefault();
+        selectNone();
+      }
+      if (modifier && event.key === "2" && !isEditingText) {
+        event.preventDefault();
+        lockNode();
+      }
+      if (modifier && event.key === "3" && !isEditingText) {
+        event.preventDefault();
+        unlockAllNodes();
+      }
+      if (modifier && event.altKey && !isEditingText) {
+        const layerShortcuts: Record<string, "front" | "back" | "forward" | "backward"> = {
+          ArrowUp: event.shiftKey ? "front" : "forward",
+          ArrowDown: event.shiftKey ? "back" : "backward",
+        };
+        const action = layerShortcuts[event.key];
+        if (action) {
+          event.preventDefault();
+          layerNode(selectedId, action);
+        }
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
         if (target?.closest("input, textarea, select")) return;
@@ -1089,7 +1202,25 @@ function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeWireframe?.nodes, closeTextEditor, copyNode, cutNode, deleteNode, pasteNode, redoProjectChange, saveProject, selectedId, textEditor, undoProjectChange, updateNode]);
+  }, [
+    activeWireframe?.nodes,
+    closeTextEditor,
+    copyNode,
+    cutNode,
+    deleteNode,
+    duplicateNode,
+    layerNode,
+    lockNode,
+    pasteNode,
+    redoProjectChange,
+    saveProject,
+    selectNone,
+    selectedId,
+    textEditor,
+    undoProjectChange,
+    unlockAllNodes,
+    updateNode,
+  ]);
 
   const addWireframe = () => {
     const id = createId("wireframe");
