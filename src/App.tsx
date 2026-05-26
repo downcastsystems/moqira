@@ -187,7 +187,17 @@ const componentLibrary: ComponentDefinition[] = [
   component("list", "List", "Data", "List", 140, 130, { options: ["Item One", "Item Two", "Item Three"] }),
   component("listIcon", "List with Icons", "Data", "ListChecks", 170, 130, { options: ["Item One", "Item Two", "Item Three"] }),
   component("treePane", "Tree Pane", "Data", "FolderTree", 210, 160, { options: ["▾ Home", "  ▣ page", "  ▣ page", "▸ Folder"] }),
-  component("dataGrid", "Data Grid", "Data", "Table", 260, 150, { columns: ["Name", "Role", "Status"], rows: ["Alice|PM|Active", "Ben|Design|Review", "Cara|Eng|Ready"] }),
+  component("dataGrid", "Data Grid", "Data", "Table", 340, 195, {
+    text: [
+      "Name\\r(job title) ^, Age ^v, Nickname, Employee v",
+      "Giacomo Guilizzoni\\rFounder & CEO, 40, Peldi, (o)",
+      "Marco Botton\\rTuttofare, 38, , [x]",
+      "Mariah Maclachlan\\rBetter Half, 41, Patata, [-]",
+      "Valerie Liberty\\rHead Chef, :), Val, [x]",
+      "[Data Grid Docs     ](https://balsamiq.com/wireframes/desktop/docs/datagrids/), , , [ ]",
+      "{65L, 0R, 35, 0C}",
+    ].join("\n"),
+  }),
   component("calendar", "Calendar", "Data", "CalendarDays", 130, 130, { text: "MAY 2026" }),
   component("dateChooser", "Date Chooser", "Data", "CalendarPlus", 128, 42, { text: " / / " }),
   component("datePicker", "Date Picker", "Data", "Calendar", 135, 170, { text: "May 2026" }),
@@ -260,13 +270,20 @@ type DragState =
   | {
       kind: "resize";
       nodeId: string;
+      handle: ResizeHandle;
       startX: number;
       startY: number;
+      originalX: number;
+      originalY: number;
       originalWidth: number;
       originalHeight: number;
+      currentX: number;
+      currentY: number;
       currentWidth: number;
       currentHeight: number;
     };
+
+type ResizeHandle = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
 
 type PaletteDragState = {
   kind: ComponentKind;
@@ -286,6 +303,7 @@ type TextEditorState = {
   y: number;
   width: number;
   height: number;
+  maxHeight: number;
   multiline: boolean;
 };
 
@@ -350,6 +368,26 @@ function editableTextField(node: CanvasNode): "text" | "options" | null {
   if (optionKinds.includes(node.kind)) return "options";
   if (typeof node.text === "string") return "text";
   return null;
+}
+
+function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft: string) {
+  if (field === "options") return true;
+  if (["dataGrid", "stickyNote", "textArea", "textParagraph", "squigglyParagraph"].includes(node.kind)) return true;
+  return draft.includes("\n");
+}
+
+function quickAccessScore(definition: ComponentDefinition, query: string) {
+  const label = definition.label.toLowerCase();
+  const kind = definition.kind.toLowerCase();
+  const category = (definition.category ?? "").toLowerCase();
+  const haystack = `${label} ${category} ${kind}`;
+  if (!haystack.includes(query)) return Number.POSITIVE_INFINITY;
+  if (label === query) return 0;
+  if (label.startsWith(query)) return 1;
+  if (label.split(/\s+/).some((word) => word.startsWith(query))) return 2;
+  if (kind === query || kind.startsWith(query)) return 3;
+  if (category === query) return 4;
+  return 5;
 }
 
 const FILENAME_SLASH = "／";
@@ -468,6 +506,36 @@ function moveNodeLayer(nodes: CanvasNode[], id: string, action: "front" | "back"
   return next;
 }
 
+function resizeBoundsFromHandle(state: Extract<DragState, { kind: "resize" }>, clientX: number, clientY: number) {
+  const minWidth = 28;
+  const minHeight = 24;
+  const deltaX = Math.round(clientX - state.startX);
+  const deltaY = Math.round(clientY - state.startY);
+  const originalRight = state.originalX + state.originalWidth;
+  const originalBottom = state.originalY + state.originalHeight;
+  let x = state.originalX;
+  let y = state.originalY;
+  let width = state.originalWidth;
+  let height = state.originalHeight;
+
+  if (state.handle.includes("e")) {
+    width = Math.max(minWidth, state.originalWidth + deltaX);
+  }
+  if (state.handle.includes("s")) {
+    height = Math.max(minHeight, state.originalHeight + deltaY);
+  }
+  if (state.handle.includes("w")) {
+    x = Math.min(originalRight - minWidth, Math.max(0, state.originalX + deltaX));
+    width = originalRight - x;
+  }
+  if (state.handle.includes("n")) {
+    y = Math.min(originalBottom - minHeight, Math.max(0, state.originalY + deltaY));
+    height = originalBottom - y;
+  }
+
+  return { x, y, width, height };
+}
+
 function fileNameFromPath(path: string) {
   return path.split(/[\\/]/).at(-1) ?? path;
 }
@@ -568,9 +636,11 @@ function App() {
   const quickAccessMatches = useMemo(() => {
     const query = quickAccessQuery.trim().toLowerCase();
     const matches = query
-      ? componentLibrary.filter((definition) =>
-          `${definition.label} ${definition.category} ${definition.kind}`.toLowerCase().includes(query),
-        )
+      ? componentLibrary
+          .map((definition, index) => ({ definition, index, score: quickAccessScore(definition, query) }))
+          .filter((item) => Number.isFinite(item.score))
+          .sort((a, b) => a.score - b.score || a.index - b.index)
+          .map((item) => item.definition)
       : componentLibrary.slice(0, 8);
     return matches.slice(0, 8);
   }, [quickAccessQuery]);
@@ -773,7 +843,7 @@ function App() {
                 nodes: wireframe.nodes.map((node) => {
                   if (node.id !== state.nodeId) return node;
                   if (state.kind === "move") return { ...node, x: state.originalX, y: state.originalY };
-                  return { ...node, width: state.originalWidth, height: state.originalHeight };
+                  return { ...node, x: state.originalX, y: state.originalY, width: state.originalWidth, height: state.originalHeight };
                 }),
               }
             : wireframe,
@@ -793,11 +863,15 @@ function App() {
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     if (!field || !canvasRect) return;
 
-    const multiline = node.kind === "stickyNote" || field === "options";
+    const draft = field === "options" ? (node.options ?? []).join("\n") : node.text ?? "";
+    const multiline = isMultilineTextNode(node, field, draft);
+    const lineCount = Math.max(1, draft.split("\n").length);
+    const maxEditorHeight = Math.max(142, Math.floor(canvasRect.height * 0.4));
+    const naturalEditorHeight = multiline ? 56 + lineCount * 28 : 96;
     const nodeViewportX = canvasRect.left + node.x;
     const nodeViewportY = canvasRect.top + node.y;
     const width = Math.max(multiline ? 420 : 360, node.width + 220);
-    const height = multiline ? Math.max(170, node.height + 82) : 68;
+    const height = multiline ? clamp(Math.max(170, node.height + 82, naturalEditorHeight), 170, maxEditorHeight) : 96;
     const maxX = Math.max(12, window.innerWidth - width - 12);
     const maxY = Math.max(12, window.innerHeight - height - 12);
 
@@ -805,11 +879,12 @@ function App() {
     setTextEditor({
       nodeId: node.id,
       field,
-      draft: field === "options" ? (node.options ?? []).join("\n") : node.text ?? "",
+      draft,
       x: clamp(nodeViewportX - 12, 12, maxX),
       y: clamp(nodeViewportY + Math.min(24, node.height), 12, maxY),
       width,
       height,
+      maxHeight: maxEditorHeight,
       multiline,
     });
   }, []);
@@ -1175,10 +1250,9 @@ function App() {
         setDragState({ ...dragState, currentX: finalX, currentY: rawY });
         previewNode(dragState.nodeId, { x: finalX, y: rawY });
       } else {
-        const width = Math.max(28, Math.round(dragState.originalWidth + event.clientX - dragState.startX));
-        const height = Math.max(24, Math.round(dragState.originalHeight + event.clientY - dragState.startY));
-        setDragState({ ...dragState, currentWidth: width, currentHeight: height });
-        previewNode(dragState.nodeId, { width, height });
+        const nextBounds = resizeBoundsFromHandle(dragState, event.clientX, event.clientY);
+        setDragState({ ...dragState, ...nextBounds, currentX: nextBounds.x, currentY: nextBounds.y, currentWidth: nextBounds.width, currentHeight: nextBounds.height });
+        previewNode(dragState.nodeId, nextBounds);
       }
     };
     const onPointerUp = () => {
@@ -1418,9 +1492,11 @@ function App() {
         </button>
         <div className="project-title">
           <span>{projectDisplayName}</span>
-          <strong className={dirty ? "save-state is-dirty" : "save-state"}>
-            {dirty ? "Unsaved changes" : projectPath ? "Saved" : "Not saved"}
-          </strong>
+          <strong
+            className={dirty ? "save-state is-dirty" : "save-state"}
+            title={dirty ? "Unsaved changes" : projectPath ? "Saved" : "Not saved"}
+            aria-label={dirty ? "Unsaved changes" : projectPath ? "Saved" : "Not saved"}
+          />
         </div>
         <div className="titlebar-actions">
           <div className="quick-access" role="combobox" aria-expanded={quickAccessOpen} aria-controls="quick-access-results">
@@ -1624,7 +1700,6 @@ function App() {
                   selected={node.id === selectedId}
                   onSelect={() => setSelectedId(node.id)}
                   onTextEdit={() => beginTextEdit(node)}
-                  onUpdate={(patch) => updateNode(node.id, patch)}
                   onMoveStart={(event) => {
                     if (node.locked) return;
                     event.stopPropagation();
@@ -1640,16 +1715,21 @@ function App() {
                       currentY: node.y,
                     });
                   }}
-                  onResizeStart={(event) => {
+                  onResizeStart={(event, handle) => {
                     event.stopPropagation();
                     setSelectedId(node.id);
                     setDragState({
                       kind: "resize",
                       nodeId: node.id,
+                      handle,
                       startX: event.clientX,
                       startY: event.clientY,
+                      originalX: node.x,
+                      originalY: node.y,
                       originalWidth: node.width,
                       originalHeight: node.height,
+                      currentX: node.x,
+                      currentY: node.y,
                       currentWidth: node.width,
                       currentHeight: node.height,
                     });
@@ -1752,7 +1832,6 @@ function CanvasItem({
   node,
   selected,
   onSelect,
-  onUpdate,
   onTextEdit,
   onMoveStart,
   onResizeStart,
@@ -1760,10 +1839,9 @@ function CanvasItem({
   node: CanvasNode;
   selected: boolean;
   onSelect: () => void;
-  onUpdate: (patch: Partial<CanvasNode>) => void;
   onTextEdit: () => void;
   onMoveStart: (event: React.PointerEvent) => void;
-  onResizeStart: (event: React.PointerEvent) => void;
+  onResizeStart: (event: React.PointerEvent, handle: ResizeHandle) => void;
 }) {
   const style = {
     left: node.x,
@@ -1796,17 +1874,20 @@ function CanvasItem({
         onTextEdit();
       }}
     >
-      <NodeContent node={node} onUpdate={onUpdate} />
+      <NodeContent node={node} />
       {selected ? (
         <>
-          <span className="selection-handle handle-nw" />
-          <span className="selection-handle handle-n" />
-          <span className="selection-handle handle-ne" />
-          <span className="selection-handle handle-e" />
-          <span className="selection-handle handle-se" onPointerDown={onResizeStart} />
-          <span className="selection-handle handle-s" />
-          <span className="selection-handle handle-sw" />
-          <span className="selection-handle handle-w" />
+          {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => (
+            <span
+              key={handle}
+              className={`selection-handle handle-${handle}`}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                if (event.button !== 0) return;
+                onResizeStart(event, handle);
+              }}
+            />
+          ))}
         </>
       ) : null}
     </div>
@@ -1878,11 +1959,11 @@ function extractMarkdownLinks(text: string) {
   return [...new Set(names)];
 }
 
-function NodeContent({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: Partial<CanvasNode>) => void }) {
+function NodeContent({ node }: { node: CanvasNode }) {
   if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton"].includes(node.kind)) return <ButtonVisual node={node} />;
   if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(node.kind)) return <TextVisual node={node} />;
   if (["checkbox", "checkboxList", "radioButton", "radioButtonGroup", "dropdown", "comboBox", "textbox", "textInput", "textArea", "searchBox", "searchBoxVoice", "colorPicker", "numericStepper", "onOffSwitch", "progressBar", "progressBarIndeterminate"].includes(node.kind)) {
-    return <FormVisual node={node} onUpdate={onUpdate} />;
+    return <FormVisual node={node} />;
   }
   if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} />;
   if (["accordion", "alertBox", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} />;
@@ -1929,7 +2010,7 @@ function TextVisual({ node }: { node: CanvasNode }) {
   return <div className={`editable-node-text text-visual text-visual-${node.kind}`}>{text}</div>;
 }
 
-function FormVisual({ node, onUpdate }: { node: CanvasNode; onUpdate: (patch: Partial<CanvasNode>) => void }) {
+function FormVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "checkbox") {
     return (
       <label className="checkbox-node">
@@ -2040,14 +2121,154 @@ function DataVisual({ node }: { node: CanvasNode }) {
 }
 
 function DataGridVisual({ node }: { node: CanvasNode }) {
-  const columns = node.columns?.length ? node.columns : ["Name", "Role", "Status"];
-  const rows = node.rows?.length ? node.rows : ["Alice|PM|Active", "Ben|Design|Review"];
+  const grid = parseDataGrid(node);
   return (
     <table className="data-grid-node">
-      <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
-      <tbody>{rows.map((row, rowIndex) => <tr key={`${row}-${rowIndex}`}>{columns.map((_, index) => <td key={index}>{row.split("|")[index] ?? ""}</td>)}</tr>)}</tbody>
+      <colgroup>
+        {grid.columns.map((column, index) => (
+          <col key={`${column.text}-${index}`} style={{ width: column.width }} />
+        ))}
+      </colgroup>
+      <thead>
+        <tr>
+          {grid.columns.map((column, index) => (
+            <th key={`${column.text}-${index}`} style={{ textAlign: column.align }}>
+              <DataGridCell cell={column.text} />
+              {column.sort ? (
+                <span
+                  className={`data-grid-sort ${column.sort === "▲" ? "is-ascending" : column.sort === "▼" ? "is-descending" : "is-both"}`}
+                  aria-label={column.sort === "▲" ? "ascending" : column.sort === "▼" ? "descending" : "ascending and descending"}
+                />
+              ) : null}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {grid.rows.map((row, rowIndex) => (
+          <tr key={`${row.join("|")}-${rowIndex}`}>
+            {grid.columns.map((column, index) => (
+              <td key={index} className={parseDataGridControl((row[index] ?? "").trim()) ? "is-control-cell" : ""} style={{ textAlign: column.align }}>
+                <DataGridCell cell={row[index] ?? ""} />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
     </table>
   );
+}
+
+type ParsedDataGridColumn = {
+  text: string;
+  align?: "left" | "center" | "right";
+  sort?: string;
+  width?: string;
+};
+
+function parseDataGrid(node: CanvasNode): { columns: ParsedDataGridColumn[]; rows: string[][] } {
+  const source = node.text?.trim()
+    ? node.text
+    : [
+        (node.columns?.length ? node.columns : ["Name", "Role", "Status"]).join(", "),
+        ...(node.rows?.length ? node.rows.map((row) => row.split("|").join(", ")) : ["Alice, PM, Active", "Ben, Design, Review"]),
+      ].join("\n");
+  const lines = source.split(/\r?\n/).map((line) => line.trimEnd()).filter((line) => line.trim());
+  const specMatch = lines.at(-1)?.trim().match(/^\{(.+)\}$/);
+  const columnSpecs = specMatch ? parseDataGridColumnSpecs(specMatch[1]) : [];
+  const dataLines = specMatch ? lines.slice(0, -1) : lines;
+  const [headerLine = "Column 1, Column 2", ...bodyLines] = dataLines;
+  const headerCells = parseDelimitedRow(headerLine);
+  const columns = headerCells.map((cell, index) => {
+    const { text, sort } = parseHeaderCell(cell);
+    const spec = columnSpecs[index];
+    return {
+      text,
+      sort,
+      align: spec?.align,
+      width: spec?.width,
+    };
+  });
+  const rows = bodyLines.map((line) => parseDelimitedRow(line));
+  return { columns, rows };
+}
+
+function parseDelimitedRow(line: string): string[] {
+  const delimiter = line.includes("\t") ? "\t" : ",";
+  const cells: string[] = [];
+  let current = "";
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") {
+      const nextChar = line[index + 1];
+      if (nextChar === delimiter) {
+        current += nextChar;
+        index += 1;
+        continue;
+      }
+      current += char;
+      continue;
+    }
+    if (char === delimiter) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseDataGridColumnSpecs(spec: string): Array<{ align?: "left" | "center" | "right"; width?: string }> {
+  const parts = parseDelimitedRow(spec);
+  const numericParts = parts.map((part) => Number(part.match(/\d+/)?.[0] ?? 1));
+  const total = numericParts.filter((value) => value > 0).reduce((sum, value) => sum + value, 0) || numericParts.length;
+  return parts.map((part, index) => {
+    const alignCode = part.match(/[LCR]\s*$/i)?.[0].trim().toUpperCase();
+    const numericValue = numericParts[index];
+    return {
+      align: alignCode === "R" ? "right" : alignCode === "C" ? "center" : alignCode === "L" ? "left" : undefined,
+      width: numericValue === 0 ? undefined : `${(numericValue / total) * 100}%`,
+    };
+  });
+}
+
+function parseHeaderCell(cell: string): { text: string; sort?: string } {
+  const match = cell.match(/\s+(\^v|\^|v)$/);
+  if (!match) return { text: cell };
+  const sortToken = match[1];
+  return {
+    text: cell.slice(0, -sortToken.length).trim(),
+    sort: sortToken === "^" ? "▲" : sortToken === "v" ? "▼" : "▲▼",
+  };
+}
+
+function DataGridCell({ cell }: { cell: string }) {
+  const trimmed = cell.trim();
+  const control = parseDataGridControl(trimmed);
+  if (control) return <span className={`data-grid-control ${control.kind} ${control.state}`} />;
+  const link = trimmed.match(/^\[([^\]]+)\](?:\([^)]+\))?$/);
+  if (link) return <span className="data-grid-link">{link[1].trim()}</span>;
+  return (
+    <>
+      {cell.split(/\\r/g).map((part, index) => (
+        <span key={`${part}-${index}`} className="data-grid-cell-line">
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function parseDataGridControl(cell: string): { kind: "checkbox" | "radio"; state: "empty" | "checked" | "mixed" } | null {
+  if (/^\[\s*\]$/.test(cell) || cell === "[]") return { kind: "checkbox", state: "empty" };
+  if (/^\[(x|v|o|\*|X|V|O)\]$/.test(cell)) return { kind: "checkbox", state: "checked" };
+  if (/^\[(-|=)\]$/.test(cell)) return { kind: "checkbox", state: "mixed" };
+  if (/^\(\s*\)$/.test(cell) || cell === "()") return { kind: "radio", state: "empty" };
+  if (/^\((x|v|o|\*|X|V|O)\)$/.test(cell)) return { kind: "radio", state: "checked" };
+  if (/^\((-|=)\)$/.test(cell)) return { kind: "radio", state: "mixed" };
+  return null;
 }
 
 function CalendarVisual({ node }: { node: CanvasNode }) {
@@ -2128,6 +2349,9 @@ function FloatingTextEditor({
   onCancel: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const lineCount = Math.max(1, editor.draft.split("\n").length);
+  const naturalHeight = editor.multiline ? 56 + lineCount * 28 : editor.height;
+  const editorHeight = editor.multiline ? clamp(naturalHeight, editor.height, editor.maxHeight) : editor.height;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -2139,7 +2363,7 @@ function FloatingTextEditor({
   return (
     <div
       className={editor.multiline ? "floating-text-editor is-multiline" : "floating-text-editor"}
-      style={{ left: editor.x, top: editor.y, width: editor.width, minHeight: editor.height }}
+      style={{ left: editor.x, top: editor.y, width: editor.width, height: editorHeight, maxHeight: editor.maxHeight }}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
@@ -2226,6 +2450,7 @@ function PropertiesPane({
     onNodeChange(patch, { groupKey: `property:${selectedNode.id}:${property}` });
   };
   const isTextNode = ["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(selectedNode.kind);
+  const isDataGrid = selectedNode.kind === "dataGrid";
   const markdownLinks = extractMarkdownLinks(selectedNode.text ?? "");
 
   return (
@@ -2376,7 +2601,7 @@ function PropertiesPane({
       ) : null}
       {"text" in selectedNode ? (
         <label>
-          Text
+          {isDataGrid ? "Data Grid" : "Text"}
           <textarea value={selectedNode.text ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("text", { text: event.target.value })} />
         </label>
       ) : null}
@@ -2386,13 +2611,13 @@ function PropertiesPane({
           <textarea value={selectedNode.options.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("options", { options: event.target.value.split("\n") })} />
         </label>
       ) : null}
-      {selectedNode.columns ? (
+      {selectedNode.columns && !isDataGrid ? (
         <label>
           Columns
           <textarea value={selectedNode.columns.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("columns", { columns: event.target.value.split("\n") })} />
         </label>
       ) : null}
-      {selectedNode.rows ? (
+      {selectedNode.rows && !isDataGrid ? (
         <label>
           Rows
           <textarea value={selectedNode.rows.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("rows", { rows: event.target.value.split("\n") })} />
