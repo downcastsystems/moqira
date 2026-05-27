@@ -553,6 +553,14 @@ button:disabled {
   z-index: 10;
 }
 
+.selection-marquee {
+  position: absolute;
+  z-index: 20;
+  border: 1px solid color-mix(in srgb, var(--accent) 78%, #ffffff);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+}
+
 .canvas-node {
   position: absolute;
   display: flex;
@@ -585,9 +593,26 @@ button:disabled {
 }
 
 .canvas-node.is-selected {
-  filter: brightness(0.94);
-  outline: 1px solid rgba(17, 24, 39, 0.76);
+  outline: 1px solid color-mix(in srgb, var(--accent) 72%, rgba(17, 24, 39, 0.76));
   outline-offset: 0;
+}
+
+.canvas-node.is-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  pointer-events: none;
+}
+
+.canvas-node.is-primary-selected {
+  filter: brightness(0.94);
+  outline-color: rgba(17, 24, 39, 0.76);
+}
+
+.canvas-node.is-primary-selected::after {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .canvas-node.is-locked {

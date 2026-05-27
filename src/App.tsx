@@ -281,11 +281,10 @@ type RenameWireframeState = {
 type DragState =
   | {
       kind: "move";
-      nodeId: string;
+      nodeIds: string[];
       startX: number;
       startY: number;
-      originalX: number;
-      originalY: number;
+      originalPositions: Record<string, { x: number; y: number }>;
       currentX: number;
       currentY: number;
     }
@@ -314,6 +313,15 @@ type PaletteDragState = {
   y: number;
   startX: number;
   startY: number;
+  moved: boolean;
+};
+
+type SelectionRectState = {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  additive: boolean;
   moved: boolean;
 };
 
@@ -516,15 +524,42 @@ function pointHitsNode(x: number, y: number, node: CanvasNode) {
   return x >= node.x && x <= node.x + node.width && y >= node.y && y <= node.y + node.height;
 }
 
-function moveNodeLayer(nodes: CanvasNode[], id: string, action: "front" | "back" | "forward" | "backward") {
-  const index = nodes.findIndex((node) => node.id === id);
-  if (index < 0) return nodes;
+function rectFromPoints(startX: number, startY: number, currentX: number, currentY: number) {
+  const x = Math.min(startX, currentX);
+  const y = Math.min(startY, currentY);
+  return {
+    x,
+    y,
+    width: Math.abs(currentX - startX),
+    height: Math.abs(currentY - startY),
+  };
+}
+
+function rectIntersectsNode(rect: { x: number; y: number; width: number; height: number }, node: CanvasNode) {
+  return rect.x <= node.x + node.width && rect.x + rect.width >= node.x && rect.y <= node.y + node.height && rect.y + rect.height >= node.y;
+}
+
+function moveNodeLayer(nodes: CanvasNode[], ids: string[], action: "front" | "back" | "forward" | "backward") {
+  const selected = new Set(ids);
+  if (!nodes.some((node) => selected.has(node.id))) return nodes;
+  if (action === "front" || action === "back") {
+    const moving = nodes.filter((node) => selected.has(node.id));
+    const rest = nodes.filter((node) => !selected.has(node.id));
+    return action === "front" ? [...rest, ...moving] : [...moving, ...rest];
+  }
   const next = [...nodes];
-  const [node] = next.splice(index, 1);
-  if (action === "front") next.push(node);
-  if (action === "back") next.unshift(node);
-  if (action === "forward") next.splice(clamp(index + 1, 0, next.length), 0, node);
-  if (action === "backward") next.splice(clamp(index - 1, 0, next.length), 0, node);
+  if (action === "forward") {
+    for (let index = next.length - 2; index >= 0; index -= 1) {
+      if (!selected.has(next[index].id) || selected.has(next[index + 1].id)) continue;
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+    }
+  }
+  if (action === "backward") {
+    for (let index = 1; index < next.length; index += 1) {
+      if (!selected.has(next[index].id) || selected.has(next[index - 1].id)) continue;
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    }
+  }
   return next;
 }
 
@@ -626,12 +661,13 @@ function App() {
     appearance.accentTitlebar = readStoredValue(accentTitlebarKey, legacyAccentTitlebarKey) === "true";
     return appearance;
   });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [clipboard, setClipboard] = useState<CanvasNode | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [clipboard, setClipboard] = useState<CanvasNode[]>([]);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [wireframeContextMenu, setWireframeContextMenu] = useState<WireframeContextMenuState | null>(null);
   const [renameWireframe, setRenameWireframe] = useState<RenameWireframeState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [selectionRect, setSelectionRect] = useState<SelectionRectState | null>(null);
   const [snapGuides, setSnapGuides] = useState<number[]>([]);
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
@@ -656,13 +692,14 @@ function App() {
   }, [rightCollapsed]);
   useEffect(() => {
     if (!interactiveMode) return;
-    setSelectedId(null);
+    setSelectedIds([]);
     setTextEditor(null);
     setContextMenu(null);
     setDragState(null);
     setSnapGuides([]);
   }, [interactiveMode]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const suppressCanvasClickRef = useRef(false);
   const suppressNextLibraryClickRef = useRef(false);
   const wireframeNavigationStackRef = useRef<string[]>([]);
   const openingProjectRef = useRef(false);
@@ -685,7 +722,23 @@ function App() {
     () => project.wireframes.find((wireframe) => wireframe.id === project.activeWireframeId) ?? project.wireframes[0],
     [project.activeWireframeId, project.wireframes],
   );
+  const selectedId = selectedIds.at(-1) ?? null;
   const selectedNode = activeWireframe?.nodes.find((node) => node.id === selectedId) ?? null;
+  const selectedNodes = useMemo(() => {
+    if (!activeWireframe) return [];
+    const selected = new Set(selectedIds);
+    return activeWireframe.nodes.filter((node) => selected.has(node.id));
+  }, [activeWireframe, selectedIds]);
+  const selectOnly = useCallback((id: string | null) => {
+    setSelectedIds(id ? [id] : []);
+  }, []);
+  const selectMany = useCallback((ids: string[]) => {
+    setSelectedIds(Array.from(new Set(ids)));
+  }, []);
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  }, []);
+  const setSelectedId = selectOnly;
   const activeWireframeBackground = wireframeBackground(activeWireframe);
   const activeWireframeShowGrid = wireframeShowGrid(activeWireframe);
   const visibleComponentLibrary = useMemo(
@@ -712,12 +765,12 @@ function App() {
     void syncEditMenuState({
       canUndo: projectHistory.past.length > 0,
       canRedo: projectHistory.future.length > 0,
-      hasSelection: Boolean(selectedNode),
-      canPaste: Boolean(clipboard),
-      canLockSelection: Boolean(selectedNode && !selectedNode.locked),
+      hasSelection: selectedIds.length > 0,
+      canPaste: clipboard.length > 0,
+      canLockSelection: selectedNodes.some((node) => !node.locked),
       hasLockedNodes: Boolean(activeWireframe?.nodes.some((node) => node.locked)),
     });
-  }, [activeWireframe?.nodes, clipboard, projectHistory.future.length, projectHistory.past.length, selectedNode]);
+  }, [activeWireframe?.nodes, clipboard.length, projectHistory.future.length, projectHistory.past.length, selectedIds.length, selectedNodes]);
 
   const startTitlebarDrag = (event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -787,7 +840,7 @@ function App() {
     });
     setSelectedId(null);
     setStatus("Undid last change");
-  }, [endProjectHistoryGroup]);
+  }, [endProjectHistoryGroup, setSelectedId]);
 
   const redoProjectChange = useCallback(() => {
     endProjectHistoryGroup();
@@ -802,7 +855,7 @@ function App() {
     });
     setSelectedId(null);
     setStatus("Redid last change");
-  }, [endProjectHistoryGroup]);
+  }, [endProjectHistoryGroup, setSelectedId]);
 
   useEffect(() => {
     if (attemptedStartupRestoreRef.current || !isTauri()) return;
@@ -833,7 +886,7 @@ function App() {
         console.warn("Could not reopen last project", error);
         setStatus("Could not reopen last project.");
       });
-  }, [resetProjectHistory]);
+  }, [resetProjectHistory, setSelectedId]);
 
   const mutateProject = useCallback((updater: (project: MockupProject) => MockupProject, options?: ProjectChangeOptions) => {
     commitProjectChange(updater, options);
@@ -863,7 +916,7 @@ function App() {
       setSelectedId(node.id);
       setStatus(`Added ${node.name}`);
     },
-    [mutateActiveWireframe],
+    [mutateActiveWireframe, setSelectedId],
   );
 
   const updateNode = useCallback(
@@ -891,6 +944,21 @@ function App() {
     }));
   }, [endProjectHistoryGroup]);
 
+  const previewNodes = useCallback((patches: Record<string, Partial<CanvasNode>>) => {
+    endProjectHistoryGroup();
+    setProjectHistory((current) => ({
+      ...current,
+      present: {
+        ...current.present,
+        wireframes: current.present.wireframes.map((wireframe) =>
+          wireframe.id === current.present.activeWireframeId
+            ? { ...wireframe, nodes: wireframe.nodes.map((node) => (patches[node.id] ? { ...node, ...patches[node.id] } : node)) }
+            : wireframe,
+        ),
+      },
+    }));
+  }, [endProjectHistoryGroup]);
+
   const commitNodeDrag = useCallback((state: DragState) => {
     setProjectHistory((current) => {
       const originalProject = {
@@ -900,8 +968,11 @@ function App() {
             ? {
                 ...wireframe,
                 nodes: wireframe.nodes.map((node) => {
+                  if (state.kind === "move") {
+                    const originalPosition = state.originalPositions[node.id];
+                    return originalPosition ? { ...node, ...originalPosition } : node;
+                  }
                   if (node.id !== state.nodeId) return node;
-                  if (state.kind === "move") return { ...node, x: state.originalX, y: state.originalY };
                   return { ...node, x: state.originalX, y: state.originalY, width: state.originalWidth, height: state.originalHeight };
                 }),
               }
@@ -946,7 +1017,7 @@ function App() {
       maxHeight: maxEditorHeight,
       multiline,
     });
-  }, []);
+  }, [setSelectedId]);
 
   const closeTextEditor = useCallback(
     (commit: boolean) => {
@@ -964,90 +1035,104 @@ function App() {
   );
 
   const deleteNode = useCallback(
-    (id: string | null = selectedId) => {
-      if (!id) return;
-      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: wireframe.nodes.filter((node) => node.id !== id) }));
-      if (selectedId === id) setSelectedId(null);
-      setStatus("Deleted component");
+    (id?: string | null) => {
+      const ids = id ? [id] : selectedIds;
+      if (!ids.length) return;
+      const deleted = new Set(ids);
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: wireframe.nodes.filter((node) => !deleted.has(node.id)) }));
+      setSelectedIds((current) => current.filter((item) => !deleted.has(item)));
+      setStatus(ids.length === 1 ? "Deleted component" : `Deleted ${ids.length} components`);
     },
-    [mutateActiveWireframe, selectedId],
+    [mutateActiveWireframe, selectedIds],
   );
 
   const duplicateNode = useCallback(
-    (id: string | null = selectedId) => {
-      const node = activeWireframe?.nodes.find((item) => item.id === id);
-      if (!node) return;
-      const duplicate = {
-        ...node,
-        id: createId("node"),
-        x: node.x + 24,
-        y: node.y + 24,
-      };
+    (id?: string | null) => {
+      const sourceIds = id ? [id] : selectedIds;
+      const selected = new Set(sourceIds);
+      const nodes = activeWireframe?.nodes.filter((item) => selected.has(item.id)) ?? [];
+      if (!nodes.length) return;
+      const duplicatesById = new Map(nodes.map((node) => [node.id, { ...node, id: createId("node"), x: node.x + 24, y: node.y + 24 }]));
       mutateActiveWireframe((wireframe) => {
-        const index = wireframe.nodes.findIndex((item) => item.id === node.id);
-        const nodes = [...wireframe.nodes];
-        nodes.splice(index + 1, 0, duplicate);
-        return { ...wireframe, nodes };
+        const nextNodes = wireframe.nodes.flatMap((item) => {
+          const duplicate = duplicatesById.get(item.id);
+          return duplicate ? [item, duplicate] : [item];
+        });
+        return { ...wireframe, nodes: nextNodes };
       });
-      setSelectedId(duplicate.id);
-      setStatus(`Duplicated ${node.name}`);
+      selectMany(Array.from(duplicatesById.values()).map((node) => node.id));
+      setStatus(nodes.length === 1 ? `Duplicated ${nodes[0].name}` : `Duplicated ${nodes.length} components`);
     },
-    [activeWireframe?.nodes, mutateActiveWireframe, selectedId],
+    [activeWireframe?.nodes, mutateActiveWireframe, selectMany, selectedIds],
   );
 
   const copyNode = useCallback(
-    (id: string | null = selectedId) => {
-      const node = activeWireframe?.nodes.find((item) => item.id === id);
-      if (!node) return;
-      setClipboard(node);
-      setStatus(`Copied ${node.name}`);
+    (id?: string | null) => {
+      const sourceIds = id ? [id] : selectedIds;
+      const selected = new Set(sourceIds);
+      const nodes = activeWireframe?.nodes.filter((item) => selected.has(item.id)) ?? [];
+      if (!nodes.length) return;
+      setClipboard(nodes);
+      setStatus(nodes.length === 1 ? `Copied ${nodes[0].name}` : `Copied ${nodes.length} components`);
     },
-    [activeWireframe?.nodes, selectedId],
+    [activeWireframe?.nodes, selectedIds],
   );
 
   const cutNode = useCallback(
-    (id: string | null = selectedId) => {
-      const node = activeWireframe?.nodes.find((item) => item.id === id);
-      if (!node) return;
-      setClipboard(node);
+    (id?: string | null) => {
+      const sourceIds = id ? [id] : selectedIds;
+      const selected = new Set(sourceIds);
+      const nodes = activeWireframe?.nodes.filter((item) => selected.has(item.id)) ?? [];
+      if (!nodes.length) return;
+      setClipboard(nodes);
       deleteNode(id);
-      setStatus(`Cut ${node.name}`);
+      setStatus(nodes.length === 1 ? `Cut ${nodes[0].name}` : `Cut ${nodes.length} components`);
     },
-    [activeWireframe?.nodes, deleteNode, selectedId],
+    [activeWireframe?.nodes, deleteNode, selectedIds],
   );
 
   const pasteNode = useCallback(
     (x?: number, y?: number) => {
-      if (!clipboard) return;
-      const node = {
-        ...clipboard,
+      if (!clipboard.length) return;
+      const minX = Math.min(...clipboard.map((node) => node.x));
+      const minY = Math.min(...clipboard.map((node) => node.y));
+      const offsetX = x === undefined ? 24 : Math.round(x - minX);
+      const offsetY = y === undefined ? 24 : Math.round(y - minY);
+      const nodes = clipboard.map((item) => ({
+        ...item,
         id: createId("node"),
-        x: Math.round(x ?? clipboard.x + 24),
-        y: Math.round(y ?? clipboard.y + 24),
-        name: clipboard.name,
-      };
-      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
-      setSelectedId(node.id);
-      setStatus(`Pasted ${node.name}`);
+        x: Math.round(item.x + offsetX),
+        y: Math.round(item.y + offsetY),
+        name: item.name,
+      }));
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, ...nodes] }));
+      selectMany(nodes.map((node) => node.id));
+      setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
     },
-    [clipboard, mutateActiveWireframe],
+    [clipboard, mutateActiveWireframe, selectMany],
   );
 
   const layerNode = useCallback(
     (id: string | null, action: "front" | "back" | "forward" | "backward") => {
-      if (!id) return;
-      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: moveNodeLayer(wireframe.nodes, id, action) }));
+      const ids = id ? [id] : selectedIds;
+      if (!ids.length) return;
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: moveNodeLayer(wireframe.nodes, ids, action) }));
     },
-    [mutateActiveWireframe],
+    [mutateActiveWireframe, selectedIds],
   );
 
   const lockNode = useCallback(
-    (id: string | null = selectedId) => {
-      if (!id) return;
-      updateNode(id, { locked: true });
-      setStatus("Locked component");
+    (id?: string | null) => {
+      const ids = id ? [id] : selectedIds;
+      if (!ids.length) return;
+      const locked = new Set(ids);
+      mutateActiveWireframe((wireframe) => ({
+        ...wireframe,
+        nodes: wireframe.nodes.map((node) => (locked.has(node.id) ? { ...node, locked: true } : node)),
+      }));
+      setStatus(ids.length === 1 ? "Locked component" : `Locked ${ids.length} components`);
     },
-    [selectedId, updateNode],
+    [mutateActiveWireframe, selectedIds],
   );
 
   const unlockAllNodes = useCallback(() => {
@@ -1063,7 +1148,7 @@ function App() {
     setContextMenu(null);
     setTextEditor(null);
     setStatus("Cleared selection");
-  }, []);
+  }, [setSelectedId]);
 
   const selectWireframe = useCallback((wireframeId: string) => {
     endProjectHistoryGroup();
@@ -1073,7 +1158,7 @@ function App() {
         : { ...current, present: { ...current.present, activeWireframeId: wireframeId } },
     );
     setSelectedId(null);
-  }, [endProjectHistoryGroup]);
+  }, [endProjectHistoryGroup, setSelectedId]);
 
   const followLink = useCallback(
     (link: CanvasLink | undefined) => {
@@ -1191,7 +1276,7 @@ function App() {
     } finally {
       openingProjectRef.current = false;
     }
-  }, [confirmLosingUnsavedChanges, resetProjectHistory]);
+  }, [confirmLosingUnsavedChanges, resetProjectHistory, setSelectedId]);
 
   const openRecentProject = useCallback(
     async (path: string) => {
@@ -1216,7 +1301,7 @@ function App() {
         setStatus(`Could not open ${fileNameFromPath(path)}`);
       }
     },
-    [confirmLosingUnsavedChanges, resetProjectHistory],
+    [confirmLosingUnsavedChanges, resetProjectHistory, setSelectedId],
   );
 
   const newProject = useCallback(() => {
@@ -1225,7 +1310,7 @@ function App() {
     setProjectPath(null);
     setSelectedId(null);
     setStatus("Created new project");
-  }, [confirmLosingUnsavedChanges, resetProjectHistory]);
+  }, [confirmLosingUnsavedChanges, resetProjectHistory, setSelectedId]);
 
   const menuActionsRef = useRef<MenuActions>({
     newProject: () => {},
@@ -1260,7 +1345,7 @@ function App() {
     deleteNode,
     duplicateNode,
     selectNone,
-    layerNode: (action) => layerNode(selectedId, action),
+    layerNode: (action) => layerNode(null, action),
     lockNode,
     unlockAllNodes,
     openSettings: () => {
@@ -1314,16 +1399,19 @@ function App() {
       if (!dragState) return;
       event.preventDefault();
       if (dragState.kind === "move") {
-        const node = activeWireframe?.nodes.find((item) => item.id === dragState.nodeId);
+        const node = activeWireframe?.nodes.find((item) => item.id === dragState.nodeIds[0]);
         if (!node) return;
-        const rawX = Math.max(0, Math.round(dragState.originalX + event.clientX - dragState.startX));
-        const rawY = Math.max(0, Math.round(dragState.originalY + event.clientY - dragState.startY));
+        const originalPosition = dragState.originalPositions[node.id];
+        if (!originalPosition) return;
+        const rawX = Math.max(0, Math.round(originalPosition.x + event.clientX - dragState.startX));
+        const rawY = Math.max(0, Math.round(originalPosition.y + event.clientY - dragState.startY));
         const canvasWidth = canvasRef.current?.clientWidth ?? 0;
         const threshold = 6;
         const targets: number[] = [];
         if (canvasWidth) targets.push(canvasWidth / 2);
+        const draggedIds = new Set(dragState.nodeIds);
         for (const other of activeWireframe?.nodes ?? []) {
-          if (other.id === dragState.nodeId) continue;
+          if (draggedIds.has(other.id)) continue;
           targets.push(other.x, other.x + other.width / 2, other.x + other.width);
         }
         let best: { x: number; lines: number[]; dist: number } = { x: rawX, lines: [], dist: threshold + 1 };
@@ -1336,9 +1424,17 @@ function App() {
           }
         }
         const finalX = best.dist <= threshold ? best.x : rawX;
+        const deltaX = finalX - originalPosition.x;
+        const deltaY = rawY - originalPosition.y;
+        const patches = Object.fromEntries(
+          dragState.nodeIds.flatMap((id) => {
+            const position = dragState.originalPositions[id];
+            return position ? [[id, { x: Math.max(0, position.x + deltaX), y: Math.max(0, position.y + deltaY) }]] : [];
+          }),
+        );
         setSnapGuides(best.dist <= threshold ? best.lines : []);
         setDragState({ ...dragState, currentX: finalX, currentY: rawY });
-        previewNode(dragState.nodeId, { x: finalX, y: rawY });
+        previewNodes(patches);
       } else {
         const nextBounds = resizeBoundsFromHandle(dragState, event.clientX, event.clientY);
         setDragState({ ...dragState, ...nextBounds, currentX: nextBounds.x, currentY: nextBounds.y, currentWidth: nextBounds.width, currentHeight: nextBounds.height });
@@ -1357,7 +1453,7 @@ function App() {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [activeWireframe?.nodes, commitNodeDrag, dragState, endProjectHistoryGroup, previewNode]);
+  }, [activeWireframe?.nodes, commitNodeDrag, dragState, endProjectHistoryGroup, previewNode, previewNodes]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -1388,6 +1484,38 @@ function App() {
       window.removeEventListener("pointerup", onPointerUp);
     };
   }, [addNode, interactiveMode, paletteDrag]);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      if (!selectionRect) return;
+      event.preventDefault();
+      const point = canvasPointFromEvent(event);
+      const moved = selectionRect.moved || Math.hypot(point.x - selectionRect.startX, point.y - selectionRect.startY) > 4;
+      setSelectionRect({ ...selectionRect, currentX: point.x, currentY: point.y, moved });
+    };
+    const onPointerUp = () => {
+      if (!selectionRect) return;
+      if (selectionRect.moved) {
+        const rect = rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY);
+        const hits = (activeWireframe?.nodes ?? []).filter((node) => rectIntersectsNode(rect, node)).map((node) => node.id);
+        selectMany(selectionRect.additive ? [...selectedIds, ...hits] : hits);
+        setStatus(hits.length === 1 ? "Selected 1 component" : `Selected ${hits.length} components`);
+        suppressCanvasClickRef.current = true;
+        window.setTimeout(() => {
+          suppressCanvasClickRef.current = false;
+        }, 0);
+      } else if (!selectionRect.additive) {
+        selectOnly(null);
+      }
+      setSelectionRect(null);
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [activeWireframe?.nodes, selectMany, selectOnly, selectedIds, selectionRect]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1452,10 +1580,10 @@ function App() {
         const action = layerShortcuts[event.key];
         if (action) {
           event.preventDefault();
-          layerNode(selectedId, action);
+          layerNode(null, action);
         }
       }
-      if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.length) {
         if (target?.closest("input, textarea, select")) return;
         event.preventDefault();
         deleteNode();
@@ -1467,18 +1595,25 @@ function App() {
           return;
         }
         setContextMenu(null);
-        setSelectedId(null);
+        selectOnly(null);
       }
-      if (selectedId && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+      if (selectedIds.length && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
         if (target?.closest("input, textarea, select")) return;
         event.preventDefault();
         const distance = event.shiftKey ? 10 : 1;
-        const node = activeWireframe?.nodes.find((item) => item.id === selectedId);
-        if (!node) return;
-        updateNode(selectedId, {
-          x: Math.max(0, node.x + (event.key === "ArrowLeft" ? -distance : event.key === "ArrowRight" ? distance : 0)),
-          y: Math.max(0, node.y + (event.key === "ArrowUp" ? -distance : event.key === "ArrowDown" ? distance : 0)),
-        });
+        const selected = new Set(selectedIds);
+        mutateActiveWireframe((wireframe) => ({
+          ...wireframe,
+          nodes: wireframe.nodes.map((node) =>
+            selected.has(node.id)
+              ? {
+                  ...node,
+                  x: Math.max(0, node.x + (event.key === "ArrowLeft" ? -distance : event.key === "ArrowRight" ? distance : 0)),
+                  y: Math.max(0, node.y + (event.key === "ArrowUp" ? -distance : event.key === "ArrowDown" ? distance : 0)),
+                }
+              : node,
+          ),
+        }));
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -1493,15 +1628,17 @@ function App() {
     interactiveMode,
     layerNode,
     lockNode,
+    mutateActiveWireframe,
     pasteNode,
     redoProjectChange,
     saveProject,
+    selectOnly,
     selectNone,
     selectedId,
+    selectedIds,
     textEditor,
     undoProjectChange,
     unlockAllNodes,
-    updateNode,
   ]);
 
   function addWireframe() {
@@ -1577,14 +1714,19 @@ function App() {
     if (interactiveMode) return;
     const point = canvasPointFromEvent(event);
     const stack = [...(activeWireframe?.nodes ?? [])].filter((node) => pointHitsNode(point.x, point.y, node)).reverse();
-    const targetId = selectedId && stack.some((node) => node.id === selectedId) ? selectedId : stack[0]?.id ?? null;
-    if (targetId) setSelectedId(targetId);
+    const selected = new Set(selectedIds);
+    const selectedTarget = stack.find((node) => selected.has(node.id));
+    const targetId = selectedTarget?.id ?? stack[0]?.id ?? null;
+    if (targetId && !selected.has(targetId)) setSelectedId(targetId);
     setContextMenu({ x: event.clientX, y: event.clientY, canvasX: point.x, canvasY: point.y, targetId, stack });
   };
 
   const contextTargetName = contextMenu?.targetId
-    ? activeWireframe?.nodes.find((node) => node.id === contextMenu.targetId)?.name ?? "Object"
+    ? selectedIds.length > 1 && selectedIds.includes(contextMenu.targetId)
+      ? `${selectedIds.length} selected`
+      : activeWireframe?.nodes.find((node) => node.id === contextMenu.targetId)?.name ?? "Object"
     : "Canvas";
+  const contextActionTargetId = contextMenu?.targetId && selectedIds.includes(contextMenu.targetId) ? null : contextMenu?.targetId ?? null;
   const projectDisplayName = projectPath ? projectNameFromPath(projectPath) : "Unsaved Project";
   const addQuickAccessNode = (definition: ComponentDefinition) => {
     addNode(definition.kind);
@@ -1842,8 +1984,28 @@ function App() {
             <div
               ref={canvasRef}
               className="canvas"
+              onPointerDown={(event) => {
+                if (interactiveMode) return;
+                if (event.button !== 0 || event.target !== event.currentTarget) return;
+                const point = canvasPointFromEvent(event);
+                setContextMenu(null);
+                setTextEditor(null);
+                setSelectionRect({
+                  startX: point.x,
+                  startY: point.y,
+                  currentX: point.x,
+                  currentY: point.y,
+                  additive: event.shiftKey || event.metaKey || event.ctrlKey,
+                  moved: false,
+                });
+              }}
               onClick={(event) => {
-                if (event.target === event.currentTarget) setSelectedId(null);
+                if (suppressCanvasClickRef.current) {
+                  event.preventDefault();
+                  return;
+                }
+                if (selectionRect?.moved) return;
+                if (event.target === event.currentTarget && !event.shiftKey && !event.metaKey && !event.ctrlKey) setSelectedId(null);
                 setContextMenu(null);
                 setTextEditor(null);
               }}
@@ -1852,28 +2014,48 @@ function App() {
               {snapGuides.map((x, index) => (
                 <div key={`guide-${index}-${x}`} className="snap-guide" style={{ left: x }} />
               ))}
+              {selectionRect?.moved ? (
+                <div
+                  className="selection-marquee"
+                  style={{
+                    left: rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY).x,
+                    top: rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY).y,
+                    width: rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY).width,
+                    height: rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY).height,
+                  }}
+                />
+              ) : null}
               {activeWireframe?.nodes.map((node) => (
                 <CanvasItem
                   key={node.id}
                   node={node}
-                  selected={node.id === selectedId}
+                  selected={selectedIds.includes(node.id)}
+                  primarySelected={node.id === selectedId}
                   linksActive={interactiveMode}
                   editingLocked={interactiveMode}
-                  onSelect={() => setSelectedId(node.id)}
+                  onSelect={(additive) => {
+                    if (additive) toggleSelection(node.id);
+                    else setSelectedId(node.id);
+                  }}
                   onLinkClick={(key) => followNodeLink(node, key)}
                   onTextEdit={() => beginTextEdit(node)}
                   onMoveStart={(event) => {
                     if (interactiveMode) return;
                     if (node.locked) return;
                     event.stopPropagation();
-                    setSelectedId(node.id);
+                    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                      toggleSelection(node.id);
+                      return;
+                    }
+                    const nodeIds = selectedIds.includes(node.id) ? selectedIds : [node.id];
+                    if (!selectedIds.includes(node.id)) setSelectedId(node.id);
+                    const movingNodes = activeWireframe?.nodes.filter((item) => nodeIds.includes(item.id) && !item.locked) ?? [];
                     setDragState({
                       kind: "move",
-                      nodeId: node.id,
+                      nodeIds: movingNodes.map((item) => item.id),
                       startX: event.clientX,
                       startY: event.clientY,
-                      originalX: node.x,
-                      originalY: node.y,
+                      originalPositions: Object.fromEntries(movingNodes.map((item) => [item.id, { x: item.x, y: item.y }])),
                       currentX: node.x,
                       currentY: node.y,
                     });
@@ -1908,11 +2090,12 @@ function App() {
           <aside className="right-pane">
             <PropertiesPane
               selectedNode={selectedNode}
+              selectedCount={selectedIds.length}
               activeWireframe={activeWireframe}
               onWireframeChange={updateActiveWireframe}
               onNodeChange={(patch, options) => selectedNode && updateNode(selectedNode.id, patch, options)}
               onNodeChangeEnd={endProjectHistoryGroup}
-              onLayer={(action) => layerNode(selectedId, action)}
+              onLayer={(action) => layerNode(null, action)}
               projectWireframes={project.wireframes}
               onCreateWireframeForLink={createWireframeForLink}
               onDuplicateWireframeForLink={duplicateWireframeForLink}
@@ -1930,17 +2113,17 @@ function App() {
         <ContextMenu
           state={contextMenu}
           targetName={contextTargetName}
-          canPaste={Boolean(clipboard)}
+          canPaste={clipboard.length > 0}
           onClose={() => setContextMenu(null)}
           onSelect={(id) => {
             setSelectedId(id);
             setContextMenu((current) => (current ? { ...current, targetId: id } : current));
           }}
-          onCut={() => cutNode(contextMenu.targetId)}
-          onCopy={() => copyNode(contextMenu.targetId)}
+          onCut={() => cutNode(contextActionTargetId)}
+          onCopy={() => copyNode(contextActionTargetId)}
           onPaste={() => pasteNode(contextMenu.canvasX, contextMenu.canvasY)}
-          onDelete={() => deleteNode(contextMenu.targetId)}
-          onLayer={(action) => layerNode(contextMenu.targetId, action)}
+          onDelete={() => deleteNode(contextActionTargetId)}
+          onLayer={(action) => layerNode(contextActionTargetId, action)}
         />
       ) : null}
       {wireframeContextMenu ? (
@@ -2013,6 +2196,7 @@ function App() {
 function CanvasItem({
   node,
   selected,
+  primarySelected,
   linksActive,
   editingLocked,
   onSelect,
@@ -2023,9 +2207,10 @@ function CanvasItem({
 }: {
   node: CanvasNode;
   selected: boolean;
+  primarySelected: boolean;
   linksActive: boolean;
   editingLocked: boolean;
-  onSelect: () => void;
+  onSelect: (additive: boolean) => void;
   onLinkClick: (key: string) => void;
   onTextEdit: () => void;
   onMoveStart: (event: React.PointerEvent) => void;
@@ -2044,7 +2229,7 @@ function CanvasItem({
 
   return (
     <div
-      className={`canvas-node node-${node.kind}${selected ? " is-selected" : ""}${node.locked ? " is-locked" : ""}`}
+      className={`canvas-node node-${node.kind}${selected ? " is-selected" : ""}${primarySelected ? " is-primary-selected" : ""}${node.locked ? " is-locked" : ""}`}
       style={style}
       onPointerDown={(event) => {
         if (event.button !== 0) {
@@ -2069,7 +2254,8 @@ function CanvasItem({
           return;
         }
         if (editingLocked) return;
-        onSelect();
+        if (event.shiftKey || event.metaKey || event.ctrlKey) return;
+        onSelect(event.shiftKey || event.metaKey || event.ctrlKey);
       }}
       onDoubleClick={(event) => {
         event.stopPropagation();
@@ -2080,7 +2266,7 @@ function CanvasItem({
       <div className="canvas-node-clip">
         <NodeContent node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />
       </div>
-      {selected && !editingLocked ? (
+      {primarySelected && !editingLocked ? (
         <>
           {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => (
             <span
@@ -2845,6 +3031,7 @@ function LinkTargetSelect({
 
 function PropertiesPane({
   selectedNode,
+  selectedCount,
   activeWireframe,
   onWireframeChange,
   onNodeChange,
@@ -2855,6 +3042,7 @@ function PropertiesPane({
   onDuplicateWireframeForLink,
 }: {
   selectedNode: CanvasNode | null;
+  selectedCount: number;
   activeWireframe: Wireframe | undefined;
   onWireframeChange: (patch: Partial<Wireframe>) => void;
   onNodeChange: (patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => void;
@@ -2928,7 +3116,7 @@ function PropertiesPane({
   return (
     <div className="properties">
       <div className="properties-title">
-        <h2>{selectedNode.name}</h2>
+        <h2>{selectedCount > 1 ? `${selectedCount} selected` : selectedNode.name}</h2>
         <ChevronDown size={20} />
       </div>
       <section className="property-section">
