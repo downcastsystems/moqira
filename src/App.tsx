@@ -2266,7 +2266,7 @@ function createDataGridBlankRows(node: CanvasNode, grid: { columns: ParsedDataGr
   }, 0);
   const borderAllowance = 4;
   const extraHeight = node.height - headerHeight - bodyHeight - borderAllowance;
-  return Array.from({ length: Math.max(0, Math.floor(extraHeight / rowHeight)) }, (_, index) => `blank-${index}`);
+  return Array.from({ length: Math.max(0, Math.floor(extraHeight / rowHeight) - 1) }, (_, index) => `blank-${index}`);
 }
 
 function dataGridLineCount(cell: string) {
