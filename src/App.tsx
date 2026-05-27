@@ -18,6 +18,7 @@ import {
   Layers,
   MousePointer2,
   PanelRight,
+  Play,
   Plus,
   Search,
   SendToBack,
@@ -32,7 +33,7 @@ import type { LucideIcon } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTauri, openProjectFile, readLastProjectPath, saveProjectFile, syncEditMenuState, syncRecentProjects, writeLastProjectPath } from "./lib/mockupsApi";
-import type { CanvasNode, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
+import type { CanvasLink, CanvasNode, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
 
 const leftPaneCollapsedKey = "moqira-left-pane-collapsed";
 const rightPaneCollapsedKey = "moqira-right-pane-collapsed";
@@ -186,7 +187,23 @@ const componentLibrary: ComponentDefinition[] = [
 
   component("list", "List", "Data", "List", 140, 130, { options: ["Item One", "Item Two", "Item Three"] }),
   component("listIcon", "List with Icons", "Data", "ListChecks", 170, 130, { options: ["Item One", "Item Two", "Item Three"] }),
-  component("treePane", "Tree Pane", "Data", "FolderTree", 210, 160, { options: ["▾ Home", "  ▣ page", "  ▣ page", "▸ Folder"] }),
+  component("treePane", "TreeView Pane", "Data", "FolderTree", 300, 285, {
+    options: [
+      "f Use f for closed folders",
+      "F Use F for open folders",
+      "[+] You may also use this",
+      "[-] and this",
+      "[x] or this",
+      "[ ] and this",
+      "> or even this",
+      "v and this",
+      "- Use - for a file icon",
+      "_ or _ to leave a space for your own icon",
+      "F use spaces or dots for hierarchy",
+      " v just like",
+      "..- this",
+    ],
+  }),
   component("dataGrid", "Data Grid", "Data", "Table", 340, 340, {
     text: [
       "Name\\r(job title) ^, Age ^v, Nickname, Employee v",
@@ -254,6 +271,11 @@ type WireframeContextMenuState = {
   x: number;
   y: number;
   wireframeId: string | null;
+};
+
+type RenameWireframeState = {
+  wireframeId: string;
+  draft: string;
 };
 
 type DragState =
@@ -506,6 +528,32 @@ function moveNodeLayer(nodes: CanvasNode[], id: string, action: "front" | "back"
   return next;
 }
 
+function linkKeyFromLabel(label: string, fallback: string) {
+  const normalized = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
+  return normalized || fallback;
+}
+
+function linkKeyForIndex(prefix: string, label: string, index: number) {
+  return `${prefix}:${linkKeyFromLabel(label, String(index))}:${index}`;
+}
+
+function linkLabel(link: CanvasLink | undefined, wireframes: Wireframe[]) {
+  if (!link) return "No Link";
+  if (link.kind === "back") return "Go Back";
+  if (link.kind === "url") return link.url || "Web Address";
+  return wireframes.find((wireframe) => wireframe.id === link.wireframeId)?.name ?? "Missing Wireframe";
+}
+
+function uniqueWireframeName(baseName: string, wireframes: Wireframe[]) {
+  const normalizedNames = new Set(wireframes.map((wireframe) => wireframe.name.trim().toLowerCase()));
+  const cleanBaseName = baseName.trim() || "Wireframe";
+  if (!normalizedNames.has(cleanBaseName.toLowerCase())) return cleanBaseName;
+  for (let index = 2; ; index += 1) {
+    const candidate = `${cleanBaseName} ${index}`;
+    if (!normalizedNames.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
 function resizeBoundsFromHandle(state: Extract<DragState, { kind: "resize" }>, clientX: number, clientY: number) {
   const minWidth = 28;
   const minHeight = 24;
@@ -582,6 +630,7 @@ function App() {
   const [clipboard, setClipboard] = useState<CanvasNode | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [wireframeContextMenu, setWireframeContextMenu] = useState<WireframeContextMenuState | null>(null);
+  const [renameWireframe, setRenameWireframe] = useState<RenameWireframeState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [snapGuides, setSnapGuides] = useState<number[]>([]);
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
@@ -595,6 +644,7 @@ function App() {
   const [quickAccessQuery, setQuickAccessQuery] = useState("");
   const [quickAccessOpen, setQuickAccessOpen] = useState(false);
   const [quickAccessIndex, setQuickAccessIndex] = useState(0);
+  const [interactiveMode, setInteractiveMode] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState<boolean>(() => localStorage.getItem(leftPaneCollapsedKey) === "true");
   const [rightCollapsed, setRightCollapsed] = useState<boolean>(() => localStorage.getItem(rightPaneCollapsedKey) === "true");
 
@@ -604,8 +654,17 @@ function App() {
   useEffect(() => {
     localStorage.setItem(rightPaneCollapsedKey, String(rightCollapsed));
   }, [rightCollapsed]);
+  useEffect(() => {
+    if (!interactiveMode) return;
+    setSelectedId(null);
+    setTextEditor(null);
+    setContextMenu(null);
+    setDragState(null);
+    setSnapGuides([]);
+  }, [interactiveMode]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const suppressNextLibraryClickRef = useRef(false);
+  const wireframeNavigationStackRef = useRef<string[]>([]);
   const openingProjectRef = useRef(false);
   const attemptedStartupRestoreRef = useRef(false);
   const dirtyRef = useRef(false);
@@ -1016,6 +1075,37 @@ function App() {
     setSelectedId(null);
   }, [endProjectHistoryGroup]);
 
+  const followLink = useCallback(
+    (link: CanvasLink | undefined) => {
+      if (!link) return;
+      if (link.kind === "url") {
+        if (link.url) window.open(link.url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      if (link.kind === "back") {
+        const previousWireframeId = wireframeNavigationStackRef.current.pop();
+        if (previousWireframeId && project.wireframes.some((wireframe) => wireframe.id === previousWireframeId)) {
+          selectWireframe(previousWireframeId);
+          setStatus("Went back");
+        }
+        return;
+      }
+      if (link.wireframeId === project.activeWireframeId) return;
+      if (!project.wireframes.some((wireframe) => wireframe.id === link.wireframeId)) return;
+      if (project.activeWireframeId) wireframeNavigationStackRef.current.push(project.activeWireframeId);
+      selectWireframe(link.wireframeId);
+      setStatus(`Opened ${linkLabel(link, project.wireframes)}`);
+    },
+    [project.activeWireframeId, project.wireframes, selectWireframe],
+  );
+
+  const followNodeLink = useCallback(
+    (node: CanvasNode, key: string) => {
+      followLink(node.links?.[key] ?? node.links?.whole);
+    },
+    [followLink],
+  );
+
   const confirmLosingUnsavedChanges = useCallback(() => {
     if (!dirty) return true;
     return window.confirm("This project has unsaved changes. Continue without saving them?");
@@ -1282,7 +1372,7 @@ function App() {
         rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
       if (paletteDrag.moved) {
         suppressNextLibraryClickRef.current = true;
-        if (droppedOnCanvas && rect) {
+        if (!interactiveMode && droppedOnCanvas && rect) {
           addNode(paletteDrag.kind, event.clientX - rect.left, event.clientY - rect.top);
         }
       }
@@ -1297,7 +1387,7 @@ function App() {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [addNode, paletteDrag]);
+  }, [addNode, interactiveMode, paletteDrag]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1318,6 +1408,13 @@ function App() {
       if (modifier && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void saveProject(event.shiftKey);
+      }
+      if (interactiveMode) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setInteractiveMode(false);
+        }
+        return;
       }
       if (modifier && event.key.toLowerCase() === "c" && !isEditingText) {
         event.preventDefault();
@@ -1393,6 +1490,7 @@ function App() {
     cutNode,
     deleteNode,
     duplicateNode,
+    interactiveMode,
     layerNode,
     lockNode,
     pasteNode,
@@ -1411,7 +1509,7 @@ function App() {
     mutateProject((current) => ({
       ...current,
       activeWireframeId: id,
-      wireframes: [...current.wireframes, { id, name: `Wireframe ${current.wireframes.length + 1}`, background: "white", showGrid: true, nodes: [] }],
+      wireframes: [...current.wireframes, { id, name: uniqueWireframeName(`Wireframe ${current.wireframes.length + 1}`, current.wireframes), background: "white", showGrid: true, nodes: [] }],
     }));
     setSelectedId(null);
   }
@@ -1427,7 +1525,7 @@ function App() {
         ...current.wireframes,
         {
           id,
-          name: `${sourceWireframe.name} copy`,
+          name: uniqueWireframeName(`${sourceWireframe.name} copy`, current.wireframes),
           background: wireframeBackground(sourceWireframe),
           showGrid: wireframeShowGrid(sourceWireframe),
           nodes: sourceWireframe.nodes.map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
@@ -1447,6 +1545,25 @@ function App() {
     setSelectedId(null);
   };
 
+  const beginRenameWireframe = (wireframeId: string) => {
+    const wireframe = project.wireframes.find((item) => item.id === wireframeId);
+    if (!wireframe) return;
+    setRenameWireframe({ wireframeId, draft: wireframe.name });
+  };
+
+  const commitRenameWireframe = (wireframeId: string, name: string) => {
+    const nextName = name.trim();
+    if (!nextName) return false;
+    const duplicate = project.wireframes.some((wireframe) => wireframe.id !== wireframeId && wireframe.name.trim().toLowerCase() === nextName.toLowerCase());
+    if (duplicate) return false;
+    mutateProject((current) => ({
+      ...current,
+      wireframes: current.wireframes.map((wireframe) => (wireframe.id === wireframeId ? { ...wireframe, name: nextName } : wireframe)),
+    }));
+    setStatus(`Renamed wireframe to ${nextName}`);
+    return true;
+  };
+
   const canvasPointFromEvent = (event: { clientX: number; clientY: number }) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     return {
@@ -1457,6 +1574,7 @@ function App() {
 
   const openCanvasContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
+    if (interactiveMode) return;
     const point = canvasPointFromEvent(event);
     const stack = [...(activeWireframe?.nodes ?? [])].filter((node) => pointHitsNode(point.x, point.y, node)).reverse();
     const targetId = selectedId && stack.some((node) => node.id === selectedId) ? selectedId : stack[0]?.id ?? null;
@@ -1475,8 +1593,36 @@ function App() {
     setQuickAccessIndex(0);
   };
 
+  const createWireframeForLink = useCallback(() => {
+    const id = createId("wireframe");
+    mutateProject((current) => ({
+      ...current,
+      wireframes: [...current.wireframes, { id, name: uniqueWireframeName(`Wireframe ${current.wireframes.length + 1}`, current.wireframes), background: "white", showGrid: true, nodes: [] }],
+    }));
+    return id;
+  }, [mutateProject]);
+
+  const duplicateWireframeForLink = useCallback(() => {
+    const sourceWireframe = activeWireframe;
+    const id = createId("wireframe");
+    mutateProject((current) => ({
+      ...current,
+      wireframes: [
+        ...current.wireframes,
+        {
+          id,
+          name: uniqueWireframeName(`${sourceWireframe?.name ?? "Wireframe"} copy`, current.wireframes),
+          background: wireframeBackground(sourceWireframe),
+          showGrid: wireframeShowGrid(sourceWireframe),
+          nodes: (sourceWireframe?.nodes ?? []).map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
+        },
+      ],
+    }));
+    return id;
+  }, [activeWireframe, mutateProject]);
+
   return (
-    <div className="app-shell">
+    <div className={interactiveMode ? "app-shell links-active is-interactive" : "app-shell"}>
       <header
         className={appAppearance.accentTitlebar ? "app-titlebar is-accented" : "app-titlebar"}
         data-tauri-drag-region
@@ -1499,6 +1645,16 @@ function App() {
           />
         </div>
         <div className="titlebar-actions">
+          <button
+            type="button"
+            className={interactiveMode ? "titlebar-pane-toggle is-active" : "titlebar-pane-toggle"}
+            title={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
+            aria-label={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
+            aria-pressed={interactiveMode}
+            onClick={() => setInteractiveMode((value) => !value)}
+          >
+            {interactiveMode ? <Square size={16} /> : <Play size={17} />}
+          </button>
           <div className="quick-access" role="combobox" aria-expanded={quickAccessOpen} aria-controls="quick-access-results">
             <Search size={15} aria-hidden="true" />
             <input
@@ -1652,11 +1808,14 @@ function App() {
                   key={definition.kind}
                   type="button"
                   className="library-item"
+                  disabled={interactiveMode}
                   onClick={() => {
+                    if (interactiveMode) return;
                     if (suppressNextLibraryClickRef.current) return;
                     addNode(definition.kind);
                   }}
                   onPointerDown={(event) => {
+                    if (interactiveMode) return;
                     if (event.button !== 0) return;
                     setPaletteDrag({
                       kind: definition.kind,
@@ -1698,9 +1857,13 @@ function App() {
                   key={node.id}
                   node={node}
                   selected={node.id === selectedId}
+                  linksActive={interactiveMode}
+                  editingLocked={interactiveMode}
                   onSelect={() => setSelectedId(node.id)}
+                  onLinkClick={(key) => followNodeLink(node, key)}
                   onTextEdit={() => beginTextEdit(node)}
                   onMoveStart={(event) => {
+                    if (interactiveMode) return;
                     if (node.locked) return;
                     event.stopPropagation();
                     setSelectedId(node.id);
@@ -1716,6 +1879,7 @@ function App() {
                     });
                   }}
                   onResizeStart={(event, handle) => {
+                    if (interactiveMode) return;
                     event.stopPropagation();
                     setSelectedId(node.id);
                     setDragState({
@@ -1749,6 +1913,9 @@ function App() {
               onNodeChange={(patch, options) => selectedNode && updateNode(selectedNode.id, patch, options)}
               onNodeChangeEnd={endProjectHistoryGroup}
               onLayer={(action) => layerNode(selectedId, action)}
+              projectWireframes={project.wireframes}
+              onCreateWireframeForLink={createWireframeForLink}
+              onDuplicateWireframeForLink={duplicateWireframeForLink}
             />
           </aside>
         )}
@@ -1781,10 +1948,25 @@ function App() {
           state={wireframeContextMenu}
           canDelete={Boolean(wireframeContextMenu.wireframeId) && project.wireframes.length > 1}
           canDuplicate={Boolean(wireframeContextMenu.wireframeId)}
+          canRename={Boolean(wireframeContextMenu.wireframeId)}
           onClose={() => setWireframeContextMenu(null)}
           onNew={addWireframe}
+          onRename={() => wireframeContextMenu.wireframeId && beginRenameWireframe(wireframeContextMenu.wireframeId)}
           onDuplicate={() => wireframeContextMenu.wireframeId && duplicateWireframe(wireframeContextMenu.wireframeId)}
           onDelete={() => wireframeContextMenu.wireframeId && deleteWireframe(wireframeContextMenu.wireframeId)}
+        />
+      ) : null}
+      {renameWireframe ? (
+        <RenameWireframeDialog
+          state={renameWireframe}
+          wireframes={project.wireframes}
+          onChange={(draft) => setRenameWireframe((current) => (current ? { ...current, draft } : current))}
+          onCancel={() => setRenameWireframe(null)}
+          onSave={() => {
+            if (!commitRenameWireframe(renameWireframe.wireframeId, renameWireframe.draft)) return false;
+            setRenameWireframe(null);
+            return true;
+          }}
         />
       ) : null}
       {paletteDrag?.moved ? (
@@ -1831,14 +2013,20 @@ function App() {
 function CanvasItem({
   node,
   selected,
+  linksActive,
+  editingLocked,
   onSelect,
+  onLinkClick,
   onTextEdit,
   onMoveStart,
   onResizeStart,
 }: {
   node: CanvasNode;
   selected: boolean;
+  linksActive: boolean;
+  editingLocked: boolean;
   onSelect: () => void;
+  onLinkClick: (key: string) => void;
   onTextEdit: () => void;
   onMoveStart: (event: React.PointerEvent) => void;
   onResizeStart: (event: React.PointerEvent, handle: ResizeHandle) => void;
@@ -1863,21 +2051,36 @@ function CanvasItem({
           event.preventDefault();
           return;
         }
+        if (editingLocked) {
+          if (linksActive && (event.target as HTMLElement).closest("[data-link-key]")) event.stopPropagation();
+          return;
+        }
+        if (linksActive && selected && (event.target as HTMLElement).closest("[data-link-key]")) {
+          event.stopPropagation();
+          return;
+        }
         onMoveStart(event);
       }}
       onClick={(event) => {
         event.stopPropagation();
+        const linkTarget = (event.target as HTMLElement).closest<HTMLElement>("[data-link-key]");
+        if (linksActive && linkTarget) {
+          onLinkClick(linkTarget.dataset.linkKey ?? "whole");
+          return;
+        }
+        if (editingLocked) return;
         onSelect();
       }}
       onDoubleClick={(event) => {
         event.stopPropagation();
+        if (editingLocked) return;
         onTextEdit();
       }}
     >
       <div className="canvas-node-clip">
-        <NodeContent node={node} />
+        <NodeContent node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />
       </div>
-      {selected ? (
+      {selected && !editingLocked ? (
         <>
           {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => (
             <span
@@ -1932,7 +2135,7 @@ function iconNameFromMarkdown(name: string) {
     .join("");
 }
 
-function renderInlineMarkdown(text: string): React.ReactNode[] {
+function renderInlineMarkdown(text: string, selected = false, linksActive = false, onLinkClick?: (key: string) => void): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const pattern = /(\{color:([^}]+)\}([\s\S]*?)\{color\}|\[([^\]]+)\]|:([a-z0-9-]+):|\*([^*\n]+)\*|_([^_\n]+)_|&([^&\n]+)&|~([^~\n]+)~)/gi;
   let cursor = 0;
@@ -1942,7 +2145,21 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
     const key = `md-${index++}`;
     if (match[2] && match[3]) nodes.push(<span key={key} style={{ color: match[2] }}>{match[3]}</span>);
-    else if (match[4]) nodes.push(<span key={key} className="mock-link">{match[4]}</span>);
+    else if (match[4]) {
+      const linkKey = `text:${linkKeyFromLabel(match[4], "link")}`;
+      nodes.push(
+        <span
+          key={key}
+          className="mock-link"
+          data-link-key={linkKey}
+          onPointerDown={(event) => {
+            if (linksActive && selected && onLinkClick) event.stopPropagation();
+          }}
+        >
+          {match[4]}
+        </span>,
+      );
+    }
     else if (match[5]) {
       const Icon = getLucideIcon(iconNameFromMarkdown(match[5]));
       nodes.push(<Icon key={key} className="inline-markdown-icon" size="1em" />);
@@ -1961,15 +2178,25 @@ function extractMarkdownLinks(text: string) {
   return [...new Set(names)];
 }
 
-function NodeContent({ node }: { node: CanvasNode }) {
+function NodeContent({
+  node,
+  selected = false,
+  linksActive = false,
+  onLinkClick,
+}: {
+  node: CanvasNode;
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+}) {
   if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton"].includes(node.kind)) return <ButtonVisual node={node} />;
-  if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(node.kind)) return <TextVisual node={node} />;
+  if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(node.kind)) return <TextVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["checkbox", "checkboxList", "radioButton", "radioButtonGroup", "dropdown", "comboBox", "textbox", "textInput", "textArea", "searchBox", "searchBoxVoice", "colorPicker", "numericStepper", "onOffSwitch", "progressBar", "progressBarIndeterminate"].includes(node.kind)) {
     return <FormVisual node={node} />;
   }
-  if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} />;
+  if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["accordion", "alertBox", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} />;
-  if (["list", "listIcon", "treePane", "dataGrid", "calendar", "dateChooser", "datePicker", "timePicker", "siteMap", "streetMap", "tagCloud"].includes(node.kind)) return <DataVisual node={node} />;
+  if (["list", "listIcon", "treePane", "dataGrid", "calendar", "dateChooser", "datePicker", "timePicker", "siteMap", "streetMap", "tagCloud"].includes(node.kind)) return <DataVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["chartBar", "chartColumn", "chartLine", "chartPie", "hScrollBar", "vScrollBar", "hSlider", "vSlider", "volumeSlider"].includes(node.kind)) return <ChartVisual node={node} />;
   if (["arrow", "hRule", "vRule", "hSplitter", "vSplitter", "redX", "scratchOut", "squigglyLine", "hCurlyBrace", "vCurlyBrace", "shape"].includes(node.kind)) return <MarkupVisual node={node} />;
   if (["icon", "iconText", "image", "webcam", "videoPlayer", "coverFlow", "smartphone", "iphone", "ipad", "iosKeyboard", "iosMenu", "iosPicker"].includes(node.kind)) return <MediaVisual node={node} />;
@@ -1980,13 +2207,13 @@ function NodeContent({ node }: { node: CanvasNode }) {
 function ButtonVisual({ node }: { node: CanvasNode }) {
   const className = `button-node visual-button visual-button-${node.kind}`;
   return (
-    <div className={className}>
+    <div className={className} data-link-key="whole">
       <span>{node.text}</span>
     </div>
   );
 }
 
-function TextVisual({ node }: { node: CanvasNode }) {
+function TextVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
   const text = node.text ?? "";
   if (node.kind === "squigglyParagraph") {
     return (
@@ -2003,13 +2230,13 @@ function TextVisual({ node }: { node: CanvasNode }) {
       <div className="editable-node-text text-visual text-visual-textParagraph">
         {text.split("\n").map((line, index) => (
           <span key={`${line}-${index}`} className="markdown-line">
-            {renderInlineMarkdown(line)}
+            {renderInlineMarkdown(line, selected, linksActive, onLinkClick)}
           </span>
         ))}
       </div>
     );
   }
-  return <div className={`editable-node-text text-visual text-visual-${node.kind}`}>{text}</div>;
+  return <div className={`editable-node-text text-visual text-visual-${node.kind}`} data-link-key="whole">{text}</div>;
 }
 
 function FormVisual({ node }: { node: CanvasNode }) {
@@ -2075,17 +2302,45 @@ function FormVisual({ node }: { node: CanvasNode }) {
   return null;
 }
 
-function NavigationVisual({ node }: { node: CanvasNode }) {
+function LinkedVisualItem({
+  linkKey,
+  selected,
+  linksActive,
+  onLinkClick,
+  className,
+  children,
+}: {
+  linkKey: string;
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className={className}
+      data-link-key={linkKey}
+      onPointerDown={(event) => {
+        if (linksActive && selected && onLinkClick) event.stopPropagation();
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
   if (node.kind === "tabs") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
   if (node.kind === "buttonBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} compact />;
   if (node.kind === "tabBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
-  if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <span key={item} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</span>)}</div>;
-  if (node.kind === "linkBar" || node.kind === "breadcrumbs") return <div className={`linkbar-node ${node.kind}`}>{nodeOptions(node).map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}</div>;
-  if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
-  if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</LinkedVisualItem>)}</div>;
+  if (node.kind === "linkBar" || node.kind === "breadcrumbs") return <div className={`linkbar-node ${node.kind}`}>{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
+  if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
+  if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
   if (node.kind === "appBar") return <div className="app-bar-node"><span>{node.text}</span><small>▾</small></div>;
   if (node.kind === "playback") return <div className="playback-node"><span>◀◀</span><span>▶</span><span>▶▶</span></div>;
-  if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
   return null;
 }
 
@@ -2110,8 +2365,20 @@ function ChromeFrame({ node }: { node: CanvasNode }) {
   );
 }
 
-function DataVisual({ node }: { node: CanvasNode }) {
-  if (node.kind === "list" || node.kind === "listIcon" || node.kind === "treePane") return <div className={`list-node ${node.kind}`}>{nodeOptions(node).map((item) => <span key={item}>{node.kind === "listIcon" ? "◆ " : ""}{item}</span>)}</div>;
+function DataVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
+  if (node.kind === "treePane") return <TreePaneVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
+  if (node.kind === "list" || node.kind === "listIcon") {
+    return (
+      <div className={`list-node ${node.kind}`}>
+        {nodeOptions(node).map((item, index) => (
+          <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>
+            {node.kind === "listIcon" ? "◆ " : ""}
+            {item}
+          </LinkedVisualItem>
+        ))}
+      </div>
+    );
+  }
   if (node.kind === "dataGrid") return <DataGridVisual node={node} />;
   if (node.kind === "calendar" || node.kind === "datePicker") return <CalendarVisual node={node} />;
   if (node.kind === "dateChooser") return <div className="date-chooser-node">{node.text}<span>▣</span></div>;
@@ -2120,6 +2387,88 @@ function DataVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "streetMap") return <div className="street-map-node"><span /><span /><span /></div>;
   if (node.kind === "tagCloud") return <div className="tag-cloud-node">{(node.text ?? "").split(/\s+/).map((word, index) => <span key={`${word}-${index}`}>{word}</span>)}</div>;
   return null;
+}
+
+type TreePaneRow = {
+  key: string;
+  depth: number;
+  icon: "folder-closed" | "folder-open" | "plus" | "minus" | "checked" | "empty" | "chevron-right" | "chevron-down" | "file" | "none";
+  label: string;
+};
+
+function parseTreePaneRows(node: CanvasNode): TreePaneRow[] {
+  return nodeOptions(node).map((rawRow, index) => {
+    const line = rawRow.replace(/\t/g, "  ");
+    const leading = line.match(/^[ .]*/)?.[0] ?? "";
+    const depth = Math.floor([...leading].reduce((sum, char) => sum + (char === "." ? 1 : 0.5), 0));
+    const trimmed = line.slice(leading.length);
+    const markerMatch = trimmed.match(/^(\[\+\]|\[-\]|\[x\]|\[X\]|\[\s\]|[fFv>\-_▸▾])(?:\s+|$)/);
+    const marker = markerMatch?.[1] ?? "_";
+    const label = markerMatch ? trimmed.slice(markerMatch[0].length).trimStart() : trimmed.trimStart();
+    const iconByMarker: Record<string, TreePaneRow["icon"]> = {
+      f: "folder-closed",
+      F: "folder-open",
+      "[+]": "plus",
+      "[-]": "minus",
+      "[x]": "checked",
+      "[X]": "checked",
+      "[ ]": "empty",
+      ">": "chevron-right",
+      "v": "chevron-down",
+      "▸": "chevron-right",
+      "▾": "chevron-down",
+      "-": "file",
+      _: "none",
+    };
+    return {
+      key: linkKeyForIndex("tree", label || trimmed || rawRow, index),
+      depth,
+      icon: iconByMarker[marker] ?? "none",
+      label,
+    };
+  });
+}
+
+function TreePaneVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
+  return (
+    <div className="tree-pane-node">
+      {parseTreePaneRows(node).map((row) => (
+        <span
+          key={row.key}
+          className="tree-pane-row"
+          data-link-key={row.key}
+          style={{ "--tree-depth": row.depth } as React.CSSProperties}
+          onPointerDown={(event) => {
+            if (linksActive && selected && onLinkClick) event.stopPropagation();
+          }}
+        >
+          <TreePaneIcon icon={row.icon} />
+          <span className="tree-pane-label">{row.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function TreePaneIcon({ icon }: { icon: TreePaneRow["icon"] }) {
+  if (icon === "none") return <span className="tree-pane-icon tree-pane-icon-none" aria-hidden="true" />;
+  const iconNames: Record<Exclude<TreePaneRow["icon"], "none">, string> = {
+    "folder-closed": "Folder",
+    "folder-open": "FolderOpen",
+    plus: "SquarePlus",
+    minus: "SquareMinus",
+    checked: "SquareCheckBig",
+    empty: "Square",
+    "chevron-right": "ChevronRight",
+    "chevron-down": "ChevronDown",
+    file: "FileText",
+  };
+  const Icon = getLucideIcon(iconNames[icon]);
+  return (
+    <span className="tree-pane-icon" aria-hidden="true">
+      <Icon size="1.12em" strokeWidth={2.6} />
+    </span>
+  );
 }
 
 function DataGridVisual({ node }: { node: CanvasNode }) {
@@ -2343,11 +2692,11 @@ function MarkupVisual({ node }: { node: CanvasNode }) {
 function MediaVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "icon") {
     const Icon = getLucideIcon(node.icon);
-    return <Icon className="icon-node" size={Math.max(12, Math.min(node.width, node.height) - 14)} />;
+    return <Icon className="icon-node" data-link-key="whole" size={Math.max(12, Math.min(node.width, node.height) - 14)} />;
   }
   if (node.kind === "iconText") {
     const Icon = getLucideIcon(node.icon);
-    return <div className="icon-text-node"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span>{node.text}</span></div>;
+    return <div className="icon-text-node" data-link-key="whole"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span>{node.text}</span></div>;
   }
   if (node.kind === "image") return <div className="image-node"><span /><span /></div>;
   if (node.kind === "webcam") return <div className="webcam-node"><span /><i /></div>;
@@ -2432,6 +2781,68 @@ function FloatingTextEditor({
   );
 }
 
+type LinkableElement = {
+  key: string;
+  label: string;
+};
+
+function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
+  const whole = { key: "whole", label: "Whole Control" };
+  if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton", "icon", "iconText"].includes(node.kind)) return [whole];
+  if (node.kind === "treePane") {
+    return parseTreePaneRows(node).map((row) => ({ key: row.key, label: row.label || "Untitled row" }));
+  }
+  if (["linkBar", "breadcrumbs", "menuBar", "menu", "toolbar", "vTabs", "list", "listIcon"].includes(node.kind)) {
+    return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item || `Item ${index + 1}` }));
+  }
+  if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link"].includes(node.kind)) {
+    return [
+      ...extractMarkdownLinks(node.text ?? "").map((link) => ({ key: `text:${linkKeyFromLabel(link, "link")}`, label: link })),
+      whole,
+    ];
+  }
+  return [];
+}
+
+function LinkTargetSelect({
+  value,
+  wireframes,
+  onChange,
+}: {
+  value: CanvasLink | undefined;
+  wireframes: Wireframe[];
+  onChange: (link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => void;
+}) {
+  const selectValue = value ? (value.kind === "wireframe" ? `wireframe:${value.wireframeId}` : value.kind) : "";
+  return (
+    <select
+      value={selectValue}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        if (!nextValue) onChange(undefined);
+        else if (nextValue === "url") {
+          const url = window.prompt("Link to a Web Address", value?.kind === "url" ? value.url : "https://");
+          onChange(url ? { kind: "url", url } : value);
+        } else if (nextValue === "new-wireframe") onChange("new-wireframe");
+        else if (nextValue === "duplicate-wireframe") onChange("duplicate-wireframe");
+        else if (nextValue === "back") onChange({ kind: "back" });
+        else if (nextValue.startsWith("wireframe:")) onChange({ kind: "wireframe", wireframeId: nextValue.slice("wireframe:".length) });
+      }}
+    >
+      <option value="">No Link</option>
+      {wireframes.map((wireframe) => (
+        <option key={wireframe.id} value={`wireframe:${wireframe.id}`}>
+          {wireframe.name}
+        </option>
+      ))}
+      <option value="url">Link to a Web Address...</option>
+      <option value="new-wireframe">Link to New Wireframe</option>
+      <option value="duplicate-wireframe">Link to a Duplicate of This Wireframe</option>
+      <option value="back">Go Back</option>
+    </select>
+  );
+}
+
 function PropertiesPane({
   selectedNode,
   activeWireframe,
@@ -2439,6 +2850,9 @@ function PropertiesPane({
   onNodeChange,
   onNodeChangeEnd,
   onLayer,
+  projectWireframes,
+  onCreateWireframeForLink,
+  onDuplicateWireframeForLink,
 }: {
   selectedNode: CanvasNode | null;
   activeWireframe: Wireframe | undefined;
@@ -2446,6 +2860,9 @@ function PropertiesPane({
   onNodeChange: (patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => void;
   onNodeChangeEnd: () => void;
   onLayer: (action: "front" | "back" | "forward" | "backward") => void;
+  projectWireframes: Wireframe[];
+  onCreateWireframeForLink: () => string;
+  onDuplicateWireframeForLink: () => string;
 }) {
   if (!selectedNode) {
     const background = wireframeBackground(activeWireframe);
@@ -2494,7 +2911,19 @@ function PropertiesPane({
   };
   const isTextNode = ["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(selectedNode.kind);
   const isDataGrid = selectedNode.kind === "dataGrid";
-  const markdownLinks = extractMarkdownLinks(selectedNode.text ?? "");
+  const linkableElements = linkableElementsForNode(selectedNode);
+  const changeLink = (key: string, link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => {
+    const nextLink =
+      link === "new-wireframe"
+        ? { kind: "wireframe" as const, wireframeId: onCreateWireframeForLink() }
+        : link === "duplicate-wireframe"
+          ? { kind: "wireframe" as const, wireframeId: onDuplicateWireframeForLink() }
+          : link;
+    const nextLinks = { ...(selectedNode.links ?? {}) };
+    if (nextLink) nextLinks[key] = nextLink;
+    else delete nextLinks[key];
+    onNodeChange({ links: Object.keys(nextLinks).length ? nextLinks : undefined });
+  };
 
   return (
     <div className="properties">
@@ -2551,32 +2980,28 @@ function PropertiesPane({
         Text Color
         <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
       </label>
+      {linkableElements.length ? (
+        <section className="property-section">
+          <div className="property-section-heading">
+            <h3>Links</h3>
+            <button type="button">Hide</button>
+          </div>
+          <div className="links-editor">
+            {linkableElements.map((item) => (
+              <div key={item.key} className="link-row">
+                <span title={item.label}>{item.label}</span>
+                <LinkTargetSelect
+                  value={selectedNode.links?.[item.key]}
+                  wireframes={projectWireframes}
+                  onChange={(link) => changeLink(item.key, link)}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {isTextNode ? (
         <>
-          <section className="property-section">
-            <div className="property-section-heading">
-              <h3>Links</h3>
-              <button type="button">Hide</button>
-            </div>
-            <div className="links-editor">
-              {markdownLinks.map((link) => (
-                <div key={link} className="link-row">
-                  <span>{link}</span>
-                  <select defaultValue={link.toLowerCase().includes("web") ? "https://balsamiq.com" : ""}>
-                    <option value="">No Link</option>
-                    <option value="https://balsamiq.com">https://balsamiq.co...</option>
-                  </select>
-                </div>
-              ))}
-              <div className="link-row">
-                <span>Whole Control</span>
-                <select defaultValue="">
-                  <option value="">No Link</option>
-                  <option value="https://balsamiq.com">https://balsamiq.co...</option>
-                </select>
-              </div>
-            </div>
-          </section>
           <section className="property-section">
             <h3>State</h3>
             <select defaultValue="normal">
@@ -2839,16 +3264,20 @@ function WireframeContextMenu({
   state,
   canDelete,
   canDuplicate,
+  canRename,
   onClose,
   onNew,
+  onRename,
   onDuplicate,
   onDelete,
 }: {
   state: WireframeContextMenuState;
   canDelete: boolean;
   canDuplicate: boolean;
+  canRename: boolean;
   onClose: () => void;
   onNew: () => void;
+  onRename: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
@@ -2863,6 +3292,16 @@ function WireframeContextMenu({
           }}
         >
           New Wireframe
+        </button>
+        <button
+          type="button"
+          disabled={!canRename}
+          onClick={() => {
+            onRename();
+            onClose();
+          }}
+        >
+          Rename Wireframe
         </button>
         <button
           type="button"
@@ -2885,6 +3324,66 @@ function WireframeContextMenu({
           Delete Wireframe
         </button>
       </div>
+    </div>
+  );
+}
+
+function RenameWireframeDialog({
+  state,
+  wireframes,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  state: RenameWireframeState;
+  wireframes: Wireframe[];
+  onChange: (draft: string) => void;
+  onCancel: () => void;
+  onSave: () => boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const trimmedName = state.draft.trim();
+  const duplicate = wireframes.some((wireframe) => wireframe.id !== state.wireframeId && wireframe.name.trim().toLowerCase() === trimmedName.toLowerCase());
+  const error = !trimmedName ? "Wireframe name is required." : duplicate ? "Another wireframe already uses that name." : "";
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [state.wireframeId]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div className="modal-scrim" role="presentation" onMouseDown={onCancel}>
+      <section className="rename-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-wireframe-title" onMouseDown={(event) => event.stopPropagation()}>
+        <h2 id="rename-wireframe-title">Rename Wireframe</h2>
+        <label>
+          Name
+          <input
+            ref={inputRef}
+            value={state.draft}
+            aria-invalid={Boolean(error)}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !error) {
+                event.preventDefault();
+                onSave();
+              }
+            }}
+          />
+        </label>
+        {error ? <p className="dialog-error">{error}</p> : null}
+        <div className="dialog-actions">
+          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="button" className="primary" disabled={Boolean(error)} onClick={onSave}>Save</button>
+        </div>
+      </section>
     </div>
   );
 }

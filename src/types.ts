@@ -117,7 +117,13 @@ export type CanvasNode = {
   placeholder?: string;
   columns?: string[];
   rows?: string[];
+  links?: Record<string, CanvasLink>;
 };
+
+export type CanvasLink =
+  | { kind: "wireframe"; wireframeId: string }
+  | { kind: "url"; url: string }
+  | { kind: "back" };
 
 export type Wireframe = {
   id: string;
