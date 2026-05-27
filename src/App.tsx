@@ -187,7 +187,7 @@ const componentLibrary: ComponentDefinition[] = [
   component("list", "List", "Data", "List", 140, 130, { options: ["Item One", "Item Two", "Item Three"] }),
   component("listIcon", "List with Icons", "Data", "ListChecks", 170, 130, { options: ["Item One", "Item Two", "Item Three"] }),
   component("treePane", "Tree Pane", "Data", "FolderTree", 210, 160, { options: ["▾ Home", "  ▣ page", "  ▣ page", "▸ Folder"] }),
-  component("dataGrid", "Data Grid", "Data", "Table", 340, 195, {
+  component("dataGrid", "Data Grid", "Data", "Table", 340, 340, {
     text: [
       "Name\\r(job title) ^, Age ^v, Nickname, Employee v",
       "Giacomo Guilizzoni\\rFounder & CEO, 40, Peldi, (o)",
@@ -1874,7 +1874,9 @@ function CanvasItem({
         onTextEdit();
       }}
     >
-      <NodeContent node={node} />
+      <div className="canvas-node-clip">
+        <NodeContent node={node} />
+      </div>
       {selected ? (
         <>
           {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => (
@@ -2122,6 +2124,7 @@ function DataVisual({ node }: { node: CanvasNode }) {
 
 function DataGridVisual({ node }: { node: CanvasNode }) {
   const grid = parseDataGrid(node);
+  const blankRows = createDataGridBlankRows(node, grid);
   return (
     <table className="data-grid-node">
       <colgroup>
@@ -2150,6 +2153,15 @@ function DataGridVisual({ node }: { node: CanvasNode }) {
             {grid.columns.map((column, index) => (
               <td key={index} className={parseDataGridControl((row[index] ?? "").trim()) ? "is-control-cell" : ""} style={{ textAlign: column.align }}>
                 <DataGridCell cell={row[index] ?? ""} />
+              </td>
+            ))}
+          </tr>
+        ))}
+        {blankRows.map((row) => (
+          <tr key={row}>
+            {grid.columns.map((column, index) => (
+              <td key={index} style={{ textAlign: column.align }}>
+                <span className="data-grid-cell-line" />
               </td>
             ))}
           </tr>
@@ -2223,15 +2235,42 @@ function parseDelimitedRow(line: string): string[] {
 function parseDataGridColumnSpecs(spec: string): Array<{ align?: "left" | "center" | "right"; width?: string }> {
   const parts = parseDelimitedRow(spec);
   const numericParts = parts.map((part) => Number(part.match(/\d+/)?.[0] ?? 1));
-  const total = numericParts.filter((value) => value > 0).reduce((sum, value) => sum + value, 0) || numericParts.length;
+  const positiveTotal = numericParts.filter((value) => value > 0).reduce((sum, value) => sum + value, 0);
+  const flexibleColumnCount = numericParts.filter((value) => value === 0).length;
+  const flexibleColumnWidth = flexibleColumnCount ? Math.min(18, 100 / numericParts.length) : 0;
+  const weightedColumnWidth = Math.max(0, 100 - flexibleColumnWidth * flexibleColumnCount);
   return parts.map((part, index) => {
     const alignCode = part.match(/[LCR]\s*$/i)?.[0].trim().toUpperCase();
     const numericValue = numericParts[index];
+    const width = numericValue === 0
+      ? `${flexibleColumnWidth}%`
+      : positiveTotal
+        ? `${(numericValue / positiveTotal) * weightedColumnWidth}%`
+        : `${100 / numericParts.length}%`;
     return {
       align: alignCode === "R" ? "right" : alignCode === "C" ? "center" : alignCode === "L" ? "left" : undefined,
-      width: numericValue === 0 ? undefined : `${(numericValue / total) * 100}%`,
+      width,
     };
   });
+}
+
+function createDataGridBlankRows(node: CanvasNode, grid: { columns: ParsedDataGridColumn[]; rows: string[][] }) {
+  const fontSize = node.fontSize ?? 14;
+  const lineHeight = fontSize * 1.2;
+  const cellVerticalPadding = 8;
+  const rowHeight = Math.ceil(lineHeight + cellVerticalPadding);
+  const headerHeight = Math.ceil(Math.max(...grid.columns.map((column) => dataGridLineCount(column.text)), 1) * lineHeight + cellVerticalPadding);
+  const bodyHeight = grid.rows.reduce((height, row) => {
+    const rowLines = Math.max(...grid.columns.map((_, index) => dataGridLineCount(row[index] ?? "")), 1);
+    return height + Math.ceil(rowLines * lineHeight + cellVerticalPadding);
+  }, 0);
+  const borderAllowance = 4;
+  const extraHeight = node.height - headerHeight - bodyHeight - borderAllowance;
+  return Array.from({ length: Math.max(0, Math.floor(extraHeight / rowHeight)) }, (_, index) => `blank-${index}`);
+}
+
+function dataGridLineCount(cell: string) {
+  return Math.max(1, cell.split(/\\r/g).length);
 }
 
 function parseHeaderCell(cell: string): { text: string; sort?: string } {
@@ -2377,6 +2416,10 @@ function FloatingTextEditor({
           if (event.key === "Escape") {
             event.preventDefault();
             onCancel();
+          }
+          if (!editor.multiline && event.key === "Enter") {
+            event.preventDefault();
+            onCommit();
           }
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();

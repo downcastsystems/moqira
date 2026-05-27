@@ -567,6 +567,13 @@ button:disabled {
   cursor: grabbing;
 }
 
+.canvas-node-clip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 .canvas-node.is-selected {
   filter: brightness(0.94);
   outline: 1px solid rgba(17, 24, 39, 0.76);
@@ -1158,12 +1165,17 @@ button:disabled {
   font-weight: 800;
 }
 
+.node-dataGrid {
+  overflow: hidden;
+}
+
 .data-grid-node {
   width: 100%;
-  height: 100%;
-  border: 3px solid var(--node-stroke);
+  height: auto;
+  align-self: flex-start;
+  border: 2px solid var(--node-stroke);
   border-collapse: collapse;
-  table-layout: auto;
+  table-layout: fixed;
   background: var(--node-fill);
   font-size: inherit;
   line-height: 1.2;
@@ -1172,12 +1184,13 @@ button:disabled {
 .data-grid-node th,
 .data-grid-node td {
   border: 0;
-  border-left: 3px solid var(--node-stroke);
-  border-right: 3px solid var(--node-stroke);
+  border-left: 2px solid var(--node-stroke);
+  border-right: 2px solid var(--node-stroke);
   padding: 4px 7px;
   overflow: hidden;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 .data-grid-node th {
@@ -1919,8 +1932,8 @@ button:disabled {
 .property-row strong,
 .property-section-heading h3 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .property-row {
