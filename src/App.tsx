@@ -104,7 +104,7 @@ function componentIcon(name: string): LucideIcon {
 function component(
   kind: ComponentKind,
   label: string,
-  category: Exclude<ComponentCategory, "All">,
+  category: Exclude<ComponentCategory, "All"> | Exclude<ComponentCategory, "All">[],
   icon: string,
   width: number,
   height: number,
@@ -113,30 +113,34 @@ function component(
   return { kind, label, category, icon, width, height, defaults };
 }
 
-const componentLibrary: ComponentDefinition[] = [
-  component("rectangle", "Rectangle", "Common", "rectangle", 180, 110, { fill: "#ffffff", stroke: "#1f2937" }),
-  component("button", "Button", "Common", "button", 112, 40, { text: "Button", fill: "#ffffff" }),
-  component("circleButton", "Circle Button", "Common", "CirclePlus", 72, 72, { text: "+", fill: "#ffffff", fontSize: 30 }),
-  component("pointyButton", "Pointy Button", "Common", "ChevronLeft", 150, 44, { text: "Button", fill: "#ffffff", variant: "left" }),
-  component("multilineButton", "Multiline Button", "Common", "MousePointer2", 170, 54, { text: "Multiline Button\nSecond line of text", fill: "#ffffff" }),
-  component("helpButton", "Help Button", "Common", "CircleHelp", 60, 60, { text: "?", fill: "#ffffff", fontSize: 30 }),
-  component("icon", "Icon", "Common", "icon", 64, 64, { icon: "Plus", textColor: "#111827" }),
-  component("iconText", "Icon and Text", "Common", "BadgeInfo", 110, 90, { icon: "Square", text: "Icon Name", textColor: "#111827" }),
-  component("stickyNote", "Comment", "Common", "stickyNote", 180, 160, { text: "A comment", fill: "#fff2a8", fontSize: 16 }),
+function componentCategoryNames(definition: ComponentDefinition) {
+  if (!definition.category) return [];
+  return Array.isArray(definition.category) ? definition.category : [definition.category];
+}
 
-  component("text", "Text", "Text", "text", 180, 42, { text: "Text label", fontSize: 18, textColor: "#111827" }),
-  component("textLabel", "Text Label", "Text", "Type", 180, 34, { text: "Some text", fontSize: 18 }),
+const componentLibrary: ComponentDefinition[] = [
+  component("rectangle", "Rectangle", ["Common", "Containers"], "rectangle", 180, 110, { fill: "#ffffff", stroke: "#1f2937" }),
+  component("button", "Button", ["Common", "Forms"], "button", 112, 40, { text: "Button", fill: "#ffffff" }),
+  component("circleButton", "Circle Button", ["Common", "Forms"], "CirclePlus", 72, 72, { text: "+", fill: "#ffffff", fontSize: 30 }),
+  component("pointyButton", "Pointy Button", "Forms", "ChevronLeft", 150, 44, { text: "Button", fill: "#ffffff", variant: "left" }),
+  component("multilineButton", "Multiline Button", "Forms", "MousePointer2", 170, 54, { text: "Multiline Button\nSecond line of text", fill: "#ffffff" }),
+  component("helpButton", "Help Button", "Forms", "CircleHelp", 60, 60, { text: "?", fill: "#ffffff", fontSize: 30 }),
+  component("icon", "Icon", ["Common", "Media"], "icon", 64, 64, { icon: "Plus", textColor: "#111827" }),
+  component("iconText", "Icon and Text", ["Common", "Media"], "BadgeInfo", 110, 90, { icon: "Square", text: "Icon Name", textColor: "#111827" }),
+  component("stickyNote", "Comment", "Markup", "stickyNote", 180, 160, { text: "A comment", fill: "#fff2a8", fontSize: 16 }),
+
+  component("textLabel", "Text Label", ["Common", "Text"], "Type", 180, 34, { text: "Some text", fontSize: 18 }),
   component("textTitle", "Text Title", "Text", "Heading1", 240, 48, { text: "A Big Title", fontSize: 28 }),
   component("textSubtitle", "Text Subtitle", "Text", "Heading2", 220, 42, { text: "A Subtitle", fontSize: 22 }),
-  component("textParagraph", "Text Paragraph", "Text", "Pilcrow", 275, 80, {
+  component("textParagraph", "Text Paragraph", ["Common", "Text"], "Pilcrow", 275, 80, {
     text: "A *paragraph* of {color:red}text{color} with an [unassigned link].\nA _second_ &row& of ~text~ with a [web link]\nAn icon :circle-plus-solid: inline with text.",
     fontSize: 13,
   }),
-  component("link", "Link", "Text", "Link", 120, 34, { text: "a link", textColor: "#2563eb", fontSize: 24 }),
-  component("squigglyParagraph", "Squiggly Paragraph", "Text", "AlignLeft", 250, 86, { text: "A paragraph of text.\nA second row of text." }),
+  component("link", "Link", ["Common", "Text"], "Link", 120, 34, { text: "a link", textColor: "#2563eb", fontSize: 24 }),
+  component("squigglyParagraph", "Squiggly Paragraph", ["Common", "Text"], "AlignLeft", 250, 86, { text: "A paragraph of text.\nA second row of text." }),
 
-  component("checkbox", "Checkbox", "Forms", "checkbox", 150, 32, { text: "Checkbox", checked: false }),
-  component("checkboxList", "Checkbox List", "Forms", "checkboxList", 230, 168, {
+  component("checkbox", "Checkbox", ["Common", "Forms"], "checkbox", 150, 32, { text: "Checkbox", checked: false }),
+  component("checkboxList", "Checkbox List", ["Common", "Forms"], "checkboxList", 230, 168, {
     options: [
       "[ ] not selected",
       "[x] selected",
@@ -148,13 +152,13 @@ const componentLibrary: ComponentDefinition[] = [
     ],
     text: "Checkbox List",
   }),
-  component("radioButton", "Radio Button", "Forms", "CircleDot", 160, 32, { text: "Radio Button", checked: false }),
-  component("radioButtonGroup", "Radio Button Group", "Forms", "ListChecks", 210, 126, { options: ["option 1", "option 2", "option 3"], text: "Radio Group" }),
+  component("radioButton", "Radio Button", ["Common", "Forms"], "CircleDot", 160, 32, { text: "Radio Button", checked: false }),
+  component("radioButtonGroup", "Radio Button Group", ["Common", "Forms"], "ListChecks", 210, 126, { options: ["option 1", "option 2", "option 3"], text: "Radio Group" }),
   component("dropdown", "Dropdown", "Forms", "dropdown", 180, 40, { text: "Choose...", options: ["First", "Second", "Third"] }),
-  component("comboBox", "ComboBox", "Forms", "ChevronDownSquare", 180, 40, { text: "ComboBox", options: ["First", "Second", "Third"] }),
+  component("comboBox", "ComboBox", ["Common", "Forms"], "ChevronDownSquare", 180, 40, { text: "ComboBox", options: ["First", "Second", "Third"] }),
   component("textbox", "Textbox", "Forms", "textbox", 190, 40, { text: "Text input" }),
-  component("textInput", "Text Input", "Forms", "TextCursorInput", 190, 40, { text: "", placeholder: "Text input" }),
-  component("textArea", "Text Area", "Forms", "Text", 230, 120, { text: "Text area" }),
+  component("textInput", "Text Input", ["Common", "Forms"], "TextCursorInput", 190, 40, { text: "", placeholder: "Text input" }),
+  component("textArea", "Text Area", ["Common", "Forms"], "Text", 230, 120, { text: "Text area" }),
   component("searchBox", "Search Box", "Forms", "Search", 190, 36, { text: "", placeholder: "search" }),
   component("searchBoxVoice", "Search Box + Mic", "Forms", "Mic", 210, 36, { text: "", placeholder: "search" }),
   component("colorPicker", "Color Picker", "Forms", "Palette", 76, 76, { fill: "#2563eb" }),
@@ -169,7 +173,7 @@ const componentLibrary: ComponentDefinition[] = [
   component("vTabs", "V.Tabs", "Navigation", "PanelLeft", 150, 160, { options: ["First Tab", "Second Tab", "Third Tab", "Fourth Tab"], activeIndex: 1 }),
   component("linkBar", "Link Bar", "Navigation", "Link", 250, 38, { options: ["Home", "Products", "Company", "Blog"] }),
   component("breadcrumbs", "Breadcrumbs", "Navigation", "ChevronRight", 240, 34, { options: ["Home", "Products", "Bags", "Feature"] }),
-  component("menuBar", "Menu Bar", "Navigation", "Menu", 250, 34, { options: ["File", "Edit", "View", "Help"] }),
+  component("menuBar", "Menu Bar", ["Common", "Navigation"], "Menu", 250, 34, { options: ["File", "Edit", "View", "Help"] }),
   component("menu", "Menu", "Navigation", "PanelTopClose", 120, 142, { options: ["Open", "Open Recent", "Close", "Save", "Toggle Item"] }),
   component("appBar", "App Bar", "Navigation", "PanelTop", 180, 32, { text: "Heading" }),
   component("playback", "Playback", "Navigation", "CirclePlay", 120, 40, { options: ["rew", "play", "ff"] }),
@@ -177,8 +181,8 @@ const componentLibrary: ComponentDefinition[] = [
 
   component("accordion", "Accordion", "Containers", "PanelTop", 170, 130, { options: ["Item One", "Item Two", "Item Three", "Item Four"] }),
   component("alertBox", "Alert Box", "Containers", "MessageSquareWarning", 220, 115, { text: "Alert text goes here", options: ["No", "Yes"] }),
-  component("browser", "Browser", "Containers", "PanelTop", 220, 160, { text: "http://example.com" }),
-  component("window", "Window", "Containers", "PanelTop", 220, 160, { text: "Window Title" }),
+  component("browser", "Browser", ["Common", "Containers"], "PanelTop", 220, 160, { text: "http://example.com" }),
+  component("window", "Window", ["Common", "Containers"], "PanelTop", 220, 160, { text: "Window Title" }),
   component("modalScreen", "Modal Screen", "Containers", "PanelTop", 220, 140, { fill: "#777777" }),
   component("fieldSet", "Field Set", "Containers", "SquareDashed", 220, 170, { text: "Group Name", fill: "#ffffff" }),
   component("popover", "Popover", "Containers", "MessageSquare", 160, 105, { text: "Popover", fill: "#ffffff" }),
@@ -228,7 +232,7 @@ const componentLibrary: ComponentDefinition[] = [
   component("chartLine", "Chart: Line", "Charts", "LineChart", 160, 105),
   component("chartPie", "Chart: Pie", "Charts", "PieChart", 110, 110),
   component("hScrollBar", "H.Scroll Bar", "Charts", "PanelBottom", 180, 28, { orientation: "horizontal" }),
-  component("vScrollBar", "V.Scroll Bar", "Charts", "PanelRight", 28, 180, { orientation: "vertical" }),
+  component("vScrollBar", "V.Scroll Bar", ["Common", "Charts"], "PanelRight", 28, 180, { orientation: "vertical" }),
   component("hSlider", "H.Slider", "Charts", "SlidersHorizontal", 170, 36, { orientation: "horizontal", value: 55 }),
   component("vSlider", "V.Slider", "Charts", "SlidersVertical", 36, 170, { orientation: "vertical", value: 55 }),
   component("volumeSlider", "Volume Slider", "Charts", "Volume2", 180, 46, { value: 55 }),
@@ -240,12 +244,12 @@ const componentLibrary: ComponentDefinition[] = [
   component("vSplitter", "V.Splitter", "Markup", "GripVertical", 28, 180),
   component("redX", "Red X", "Markup", "X", 140, 70, { stroke: "#8b111c" }),
   component("scratchOut", "Scratch-Out", "Markup", "Paintbrush", 140, 70),
-  component("squigglyLine", "Squiggly Line", "Markup", "Waves", 160, 35),
+  component("squigglyLine", "Squiggly Line", ["Common", "Markup"], "Waves", 160, 35),
   component("hCurlyBrace", "H.Curly Brace", "Markup", "Braces", 180, 46, { text: "A paragraph of text.\nA second row of text." }),
   component("vCurlyBrace", "V.Curly Brace", "Markup", "Braces", 56, 160, { text: "A paragraph of text.\nA second row of text." }),
-  component("shape", "Shape", "Markup", "Circle", 95, 95, { fill: "#ffffff" }),
+  component("shape", "Shape", ["Common", "Markup"], "Circle", 95, 95, { fill: "#ffffff" }),
 
-  component("image", "Image", "Media", "Image", 140, 120, { fill: "#ffffff" }),
+  component("image", "Image", ["Common", "Media"], "Image", 140, 120, { fill: "#ffffff" }),
   component("webcam", "Webcam", "Media", "Webcam", 130, 130),
   component("videoPlayer", "Video Player", "Media", "Clapperboard", 220, 145),
   component("coverFlow", "Cover Flow", "Media", "GalleryHorizontal", 200, 120),
@@ -257,6 +261,36 @@ const componentLibrary: ComponentDefinition[] = [
   component("iosMenu", "iOS Menu", "iOS", "List", 120, 170, { options: ["Label", "Label", "Label", "Label"] }),
   component("iosPicker", "iOS Picker", "iOS", "PanelBottom", 150, 130, { options: ["08", "09", "10", "AM", "PM"] }),
 ];
+
+const commonComponentOrder: ComponentKind[] = [
+  "browser",
+  "button",
+  "checkbox",
+  "checkboxList",
+  "circleButton",
+  "comboBox",
+  "icon",
+  "iconText",
+  "image",
+  "link",
+  "menuBar",
+  "radioButton",
+  "radioButtonGroup",
+  "rectangle",
+  "shape",
+  "squigglyParagraph",
+  "squigglyLine",
+  "textArea",
+  "textInput",
+  "textLabel",
+  "textParagraph",
+  "vScrollBar",
+  "window",
+];
+
+const commonComponentRank = new Map<ComponentKind, number>(
+  commonComponentOrder.map((kind, index) => [kind, index]),
+);
 
 type ContextMenuState = {
   x: number;
@@ -409,14 +443,14 @@ function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft:
 function quickAccessScore(definition: ComponentDefinition, query: string) {
   const label = definition.label.toLowerCase();
   const kind = definition.kind.toLowerCase();
-  const category = (definition.category ?? "").toLowerCase();
+  const category = componentCategoryNames(definition).join(" ").toLowerCase();
   const haystack = `${label} ${category} ${kind}`;
   if (!haystack.includes(query)) return Number.POSITIVE_INFINITY;
   if (label === query) return 0;
   if (label.startsWith(query)) return 1;
   if (label.split(/\s+/).some((word) => word.startsWith(query))) return 2;
   if (kind === query || kind.startsWith(query)) return 3;
-  if (category === query) return 4;
+  if (componentCategoryNames(definition).some((item) => item.toLowerCase() === query)) return 4;
   return 5;
 }
 
@@ -741,10 +775,15 @@ function App() {
   const setSelectedId = selectOnly;
   const activeWireframeBackground = wireframeBackground(activeWireframe);
   const activeWireframeShowGrid = wireframeShowGrid(activeWireframe);
-  const visibleComponentLibrary = useMemo(
-    () => componentLibrary.filter((definition) => activeComponentCategory === "All" || definition.category === activeComponentCategory),
-    [activeComponentCategory],
-  );
+  const visibleComponentLibrary = useMemo(() => {
+    const definitions = componentLibrary.filter((definition) => activeComponentCategory === "All" || componentCategoryNames(definition).includes(activeComponentCategory));
+    if (activeComponentCategory !== "Common") return definitions;
+    return [...definitions].sort((a, b) => {
+      const aRank = commonComponentRank.get(a.kind) ?? Number.MAX_SAFE_INTEGER;
+      const bRank = commonComponentRank.get(b.kind) ?? Number.MAX_SAFE_INTEGER;
+      return aRank - bRank;
+    });
+  }, [activeComponentCategory]);
   const quickAccessMatches = useMemo(() => {
     const query = quickAccessQuery.trim().toLowerCase();
     const matches = query
@@ -1876,6 +1915,55 @@ function App() {
       </header>
 
       <main className={`workspace${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}`}>
+        <div className="component-library-shell">
+          <div className="component-categories" aria-label="Component categories">
+            {componentCategories.map((category) => (
+              <button
+                key={category}
+                type="button"
+                className={category === activeComponentCategory ? "is-active" : ""}
+                onClick={() => setActiveComponentCategory(category)}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+          <div className="component-library">
+            {visibleComponentLibrary.map((definition) => {
+              const Icon = componentIcon(definition.icon);
+              return (
+                <button
+                  key={definition.kind}
+                  type="button"
+                  className="library-item"
+                  disabled={interactiveMode}
+                  onClick={() => {
+                    if (interactiveMode) return;
+                    if (suppressNextLibraryClickRef.current) return;
+                    addNode(definition.kind);
+                  }}
+                  onPointerDown={(event) => {
+                    if (interactiveMode) return;
+                    if (event.button !== 0) return;
+                    setPaletteDrag({
+                      kind: definition.kind,
+                      label: definition.label,
+                      x: event.clientX,
+                      y: event.clientY,
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      moved: false,
+                    });
+                  }}
+                >
+                  <Icon size={26} />
+                  <span>{definition.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {leftCollapsed ? null : (
         <aside className="left-pane">
           <button
@@ -1929,55 +2017,6 @@ function App() {
         )}
 
         <section className="center-pane">
-          <div className="component-library-shell">
-            <div className="component-categories" aria-label="Component categories">
-              {componentCategories.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  className={category === activeComponentCategory ? "is-active" : ""}
-                  onClick={() => setActiveComponentCategory(category)}
-                >
-                  {category}
-                </button>
-              ))}
-            </div>
-            <div className="component-library">
-            {visibleComponentLibrary.map((definition) => {
-              const Icon = componentIcon(definition.icon);
-              return (
-                <button
-                  key={definition.kind}
-                  type="button"
-                  className="library-item"
-                  disabled={interactiveMode}
-                  onClick={() => {
-                    if (interactiveMode) return;
-                    if (suppressNextLibraryClickRef.current) return;
-                    addNode(definition.kind);
-                  }}
-                  onPointerDown={(event) => {
-                    if (interactiveMode) return;
-                    if (event.button !== 0) return;
-                    setPaletteDrag({
-                      kind: definition.kind,
-                      label: definition.label,
-                      x: event.clientX,
-                      y: event.clientY,
-                      startX: event.clientX,
-                      startY: event.clientY,
-                      moved: false,
-                    });
-                  }}
-                >
-                  <Icon size={26} />
-                  <span>{definition.label}</span>
-                </button>
-              );
-            })}
-            </div>
-          </div>
-
           <div
             className={`canvas-scroll canvas-bg-${activeWireframeBackground}${activeWireframeShowGrid ? " has-grid" : ""}`}
           >

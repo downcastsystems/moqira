@@ -159,7 +159,7 @@ export type ComponentDefinition = {
   kind: ComponentKind;
   label: string;
   icon: string;
-  category?: string;
+  category?: string | string[];
   width: number;
   height: number;
   defaults?: Partial<CanvasNode>;
