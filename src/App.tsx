@@ -377,6 +377,12 @@ type TextEditorState = {
   multiline: boolean;
 };
 
+type TextEditSnapshot = {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+};
+
 type RecentProject = {
   path: string;
   name: string;
@@ -455,6 +461,98 @@ function optionsEditDraft(node: CanvasNode) {
 function parseOptionsEditDraft(node: CanvasNode, draft: string) {
   if (["buttonBar", "menuBar"].includes(node.kind)) return draft.split(",").map((item) => item.trim()).filter(Boolean);
   return draft.split("\n");
+}
+
+type TextInputElement = HTMLInputElement | HTMLTextAreaElement;
+
+let lastTextInput: TextInputElement | null = null;
+let lastTextInputSelection: { value: string; selectionStart: number; selectionEnd: number; floatingEditor: boolean; updatedAt: number } | null = null;
+
+function isTextInputElement(element: Element | null): element is TextInputElement {
+  if (element instanceof HTMLTextAreaElement) return true;
+  return element instanceof HTMLInputElement && ["text", "search", "url", "tel", "email", "password", ""].includes(element.type);
+}
+
+function rememberTextInputSelection(element: TextInputElement) {
+  lastTextInput = element;
+  lastTextInputSelection = {
+    value: element.value,
+    selectionStart: element.selectionStart ?? 0,
+    selectionEnd: element.selectionEnd ?? element.selectionStart ?? 0,
+    floatingEditor: Boolean(element.closest(".floating-text-editor")),
+    updatedAt: Date.now(),
+  };
+}
+
+function activeTextInput() {
+  const activeElement = document.activeElement;
+  if (isTextInputElement(activeElement)) {
+    rememberTextInputSelection(activeElement);
+    return activeElement;
+  }
+  if (lastTextInput?.isConnected && lastTextInput.closest(".floating-text-editor")) return lastTextInput;
+  return null;
+}
+
+function replaceSelectedText(element: TextInputElement, text: string, inputType: InputEvent["inputType"]) {
+  const selectionStart = element.selectionStart ?? element.value.length;
+  const selectionEnd = element.selectionEnd ?? selectionStart;
+  element.setRangeText(text, selectionStart, selectionEnd, "end");
+  element.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType }));
+  rememberTextInputSelection(element);
+}
+
+function textInputSnapshot(element: TextInputElement): TextEditSnapshot {
+  return {
+    value: element.value,
+    selectionStart: element.selectionStart ?? element.value.length,
+    selectionEnd: element.selectionEnd ?? element.selectionStart ?? element.value.length,
+  };
+}
+
+function replaceTextInputSelection(element: TextInputElement, text: string) {
+  const selectionStart = element.selectionStart ?? element.value.length;
+  const selectionEnd = element.selectionEnd ?? selectionStart;
+  const nextValue = `${element.value.slice(0, selectionStart)}${text}${element.value.slice(selectionEnd)}`;
+  return {
+    value: nextValue,
+    selectionStart: selectionStart + text.length,
+    selectionEnd: selectionStart + text.length,
+  };
+}
+
+function runEditableClipboardAction(action: "cut" | "copy" | "paste", allowCachedSelection = false) {
+  const element = activeTextInput();
+  if (!element && action !== "copy" && action !== "cut") return false;
+  if (!element) {
+    const canUseCachedSelection =
+      allowCachedSelection &&
+      lastTextInputSelection?.floatingEditor &&
+      Date.now() - lastTextInputSelection.updatedAt < 5000;
+    if (!canUseCachedSelection) return false;
+    const selectedText = lastTextInputSelection
+      ? lastTextInputSelection.value.slice(lastTextInputSelection.selectionStart, lastTextInputSelection.selectionEnd)
+      : "";
+    if (!selectedText) return false;
+    void navigator.clipboard?.writeText(selectedText);
+    return true;
+  }
+  const selectionStart = element.selectionStart ?? lastTextInputSelection?.selectionStart ?? 0;
+  const selectionEnd = element.selectionEnd ?? lastTextInputSelection?.selectionEnd ?? selectionStart;
+  if (document.activeElement !== element) {
+    element.focus({ preventScroll: true });
+    element.setSelectionRange(selectionStart, selectionEnd);
+  }
+  if (document.execCommand(action)) return true;
+  if (action === "paste") {
+    void navigator.clipboard?.readText().then((text) => replaceSelectedText(element, text, "insertFromPaste"));
+    return true;
+  }
+  const selectedText = element.value.slice(selectionStart, selectionEnd);
+  if (!selectedText) return true;
+  void navigator.clipboard?.writeText(selectedText);
+  if (action === "cut" && selectionStart !== selectionEnd) replaceSelectedText(element, "", "deleteByCut");
+  return true;
 }
 
 function quickAccessScore(definition: ComponentDefinition, query: string) {
@@ -1462,9 +1560,15 @@ function App() {
     addMenuListener("menu-save-project-as", () => runAfterMenuCloses(() => void menuActionsRef.current.saveProject(true)));
     addMenuListener("menu-undo-project", () => menuActionsRef.current.undoProjectChange());
     addMenuListener("menu-redo-project", () => menuActionsRef.current.redoProjectChange());
-    addMenuListener("menu-cut-node", () => menuActionsRef.current.cutNode());
-    addMenuListener("menu-copy-node", () => menuActionsRef.current.copyNode());
-    addMenuListener("menu-paste-node", () => menuActionsRef.current.pasteNode());
+    addMenuListener("menu-cut-node", () => {
+      if (!runEditableClipboardAction("cut", true)) menuActionsRef.current.cutNode();
+    });
+    addMenuListener("menu-copy-node", () => {
+      if (!runEditableClipboardAction("copy", true)) menuActionsRef.current.copyNode();
+    });
+    addMenuListener("menu-paste-node", () => {
+      if (!runEditableClipboardAction("paste")) menuActionsRef.current.pasteNode();
+    });
     addMenuListener("menu-delete-node", () => menuActionsRef.current.deleteNode());
     addMenuListener("menu-duplicate-node", () => menuActionsRef.current.duplicateNode());
     addMenuListener("menu-select-none", () => menuActionsRef.current.selectNone());
@@ -1650,15 +1754,21 @@ function App() {
       }
       if (modifier && event.key.toLowerCase() === "c" && !isEditingText) {
         event.preventDefault();
+        if (runEditableClipboardAction("copy")) return;
         copyNode();
+        return;
       }
       if (modifier && event.key.toLowerCase() === "x" && !isEditingText) {
         event.preventDefault();
+        if (runEditableClipboardAction("cut")) return;
         cutNode();
+        return;
       }
       if (modifier && event.key.toLowerCase() === "v" && !isEditingText) {
         event.preventDefault();
+        if (runEditableClipboardAction("paste")) return;
         pasteNode();
+        return;
       }
       if (modifier && event.key.toLowerCase() === "d" && !isEditingText) {
         event.preventDefault();
@@ -3067,15 +3177,75 @@ function FloatingTextEditor({
   onCancel: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const undoStackRef = useRef<TextEditSnapshot[]>([]);
+  const redoStackRef = useRef<TextEditSnapshot[]>([]);
   const lineCount = Math.max(1, editor.draft.split("\n").length);
   const naturalHeight = editor.multiline ? 56 + lineCount * 28 : editor.height;
   const editorHeight = editor.multiline ? clamp(naturalHeight, editor.height, editor.maxHeight) : editor.height;
+  const setTextareaSelection = (snapshot: Pick<TextEditSnapshot, "selectionStart" | "selectionEnd">) => {
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+      rememberTextInputSelection(textarea);
+    });
+  };
+  const applyTextChange = (snapshot: TextEditSnapshot) => {
+    onChange(snapshot.value);
+    setTextareaSelection(snapshot);
+  };
+  const pushUndoSnapshot = (snapshot: TextEditSnapshot) => {
+    const previous = undoStackRef.current.at(-1);
+    if (
+      previous &&
+      previous.value === snapshot.value &&
+      previous.selectionStart === snapshot.selectionStart &&
+      previous.selectionEnd === snapshot.selectionEnd
+    ) {
+      return;
+    }
+    undoStackRef.current = [...undoStackRef.current, snapshot].slice(-100);
+    redoStackRef.current = [];
+  };
+  const selectedText = (textarea: HTMLTextAreaElement) => {
+    const { value, selectionStart, selectionEnd } = textInputSnapshot(textarea);
+    return value.slice(selectionStart, selectionEnd);
+  };
+  const writeSelectionToClipboard = (textarea: HTMLTextAreaElement) => {
+    const text = selectedText(textarea);
+    if (!text) return;
+    document.execCommand("copy");
+    void navigator.clipboard?.writeText(text).catch(() => undefined);
+  };
+  const pasteFromClipboard = (textarea: HTMLTextAreaElement) => {
+    void (async () => {
+      try {
+        const text = await navigator.clipboard?.readText();
+        if (typeof text === "string") {
+          applyTextChange(replaceTextInputSelection(textarea, text));
+          return;
+        }
+      } catch {
+        // Fall back to the webview's native paste command when direct clipboard access is unavailable.
+      }
+      document.execCommand("paste");
+      rememberTextInputSelection(textarea);
+    })();
+  };
+  const isPlainTextEditKey = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return false;
+    return event.key.length === 1 || ["Backspace", "Delete", "Enter"].includes(event.key);
+  };
 
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
     textarea.focus();
     textarea.select();
+    rememberTextInputSelection(textarea);
   }, [editor.nodeId, editor.field]);
 
   return (
@@ -3089,9 +3259,53 @@ function FloatingTextEditor({
         ref={textareaRef}
         value={editor.draft}
         rows={editor.multiline ? 6 : 1}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          rememberTextInputSelection(event.currentTarget);
+        }}
+        onFocus={(event) => rememberTextInputSelection(event.currentTarget)}
+        onSelect={(event) => rememberTextInputSelection(event.currentTarget)}
+        onKeyUp={(event) => rememberTextInputSelection(event.currentTarget)}
+        onMouseUp={(event) => rememberTextInputSelection(event.currentTarget)}
         onBlur={onCommit}
         onKeyDown={(event) => {
+          const textarea = event.currentTarget;
+          const modifier = event.metaKey || event.ctrlKey;
+          const key = event.key.toLowerCase();
+          if (modifier && ["c", "x", "v", "z"].includes(key)) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (key === "c") {
+              writeSelectionToClipboard(textarea);
+              return;
+            }
+            if (key === "x") {
+              pushUndoSnapshot(textInputSnapshot(textarea));
+              writeSelectionToClipboard(textarea);
+              applyTextChange(replaceTextInputSelection(textarea, ""));
+              return;
+            }
+            if (key === "v") {
+              pushUndoSnapshot(textInputSnapshot(textarea));
+              pasteFromClipboard(textarea);
+              return;
+            }
+            if (key === "z") {
+              if (event.shiftKey) {
+                const next = redoStackRef.current.pop();
+                if (!next) return;
+                undoStackRef.current = [...undoStackRef.current, textInputSnapshot(textarea)].slice(-100);
+                applyTextChange(next);
+                return;
+              }
+              const previous = undoStackRef.current.pop();
+              if (!previous) return;
+              redoStackRef.current = [...redoStackRef.current, textInputSnapshot(textarea)].slice(-100);
+              applyTextChange(previous);
+              return;
+            }
+          }
+          if (isPlainTextEditKey(event)) pushUndoSnapshot(textInputSnapshot(textarea));
           if (event.key === "Escape") {
             event.preventDefault();
             onCancel();
