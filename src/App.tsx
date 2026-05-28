@@ -359,6 +359,12 @@ type SelectionRectState = {
   moved: boolean;
 };
 
+type InteractiveSelectState = {
+  nodeId: string;
+  open: boolean;
+  selectedIndex: number | null;
+};
+
 type TextEditorState = {
   nodeId: string;
   field: "text" | "options";
@@ -435,9 +441,20 @@ function editableTextField(node: CanvasNode): "text" | "options" | null {
 }
 
 function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft: string) {
+  if (field === "options" && ["buttonBar", "menuBar"].includes(node.kind)) return false;
   if (field === "options") return true;
   if (["dataGrid", "stickyNote", "textArea", "textParagraph", "squigglyParagraph"].includes(node.kind)) return true;
   return draft.includes("\n");
+}
+
+function optionsEditDraft(node: CanvasNode) {
+  const options = node.options ?? [];
+  return ["buttonBar", "menuBar"].includes(node.kind) ? options.join(", ") : options.join("\n");
+}
+
+function parseOptionsEditDraft(node: CanvasNode, draft: string) {
+  if (["buttonBar", "menuBar"].includes(node.kind)) return draft.split(",").map((item) => item.trim()).filter(Boolean);
+  return draft.split("\n");
 }
 
 function quickAccessScore(definition: ComponentDefinition, query: string) {
@@ -658,13 +675,13 @@ function fileNameFromPath(path: string) {
 }
 
 function projectNameFromPath(path: string) {
-  return decodeTitleFromFilename(fileNameFromPath(path).replace(/\.(moqira|dsmockup|json)$/i, "")) || "Untitled Project";
+  return decodeTitleFromFilename(fileNameFromPath(path).replace(/\.(moq|moqira|dsmockup|json)$/i, "")) || "Untitled Project";
 }
 
 function defaultSaveFileName(project: MockupProject, projectPath: string | null) {
   if (projectPath) return fileNameFromPath(projectPath);
   const baseName = project.name.trim() && project.name !== "New Project" ? project.name.trim() : "Untitled Project";
-  return `${encodeTitleForFilename(baseName)}.moqira`;
+  return `${encodeTitleForFilename(baseName)}.moq`;
 }
 
 function projectSnapshot(project: MockupProject) {
@@ -714,6 +731,7 @@ function App() {
   const [quickAccessQuery, setQuickAccessQuery] = useState("");
   const [quickAccessOpen, setQuickAccessOpen] = useState(false);
   const [quickAccessIndex, setQuickAccessIndex] = useState(0);
+  const [interactiveSelect, setInteractiveSelect] = useState<InteractiveSelectState | null>(null);
   const [interactiveMode, setInteractiveMode] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState<boolean>(() => localStorage.getItem(leftPaneCollapsedKey) === "true");
   const [rightCollapsed, setRightCollapsed] = useState<boolean>(() => localStorage.getItem(rightPaneCollapsedKey) === "true");
@@ -732,11 +750,18 @@ function App() {
     setDragState(null);
     setSnapGuides([]);
   }, [interactiveMode]);
+  useEffect(() => {
+    if (!interactiveMode) setInteractiveSelect(null);
+  }, [interactiveMode]);
+  useEffect(() => {
+    setInteractiveSelect(null);
+  }, [projectHistory.present.activeWireframeId]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const suppressCanvasClickRef = useRef(false);
   const suppressNextLibraryClickRef = useRef(false);
   const wireframeNavigationStackRef = useRef<string[]>([]);
   const openingProjectRef = useRef(false);
+  const projectDialogOpenRef = useRef(false);
   const attemptedStartupRestoreRef = useRef(false);
   const dirtyRef = useRef(false);
   const activeProjectHistoryGroupKeyRef = useRef<string | null>(null);
@@ -1032,7 +1057,7 @@ function App() {
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     if (!field || !canvasRect) return;
 
-    const draft = field === "options" ? (node.options ?? []).join("\n") : node.text ?? "";
+    const draft = field === "options" ? optionsEditDraft(node) : node.text ?? "";
     const multiline = isMultilineTextNode(node, field, draft);
     const lineCount = Math.max(1, draft.split("\n").length);
     const maxEditorHeight = Math.max(142, Math.floor(canvasRect.height * 0.4));
@@ -1062,15 +1087,20 @@ function App() {
     (commit: boolean) => {
       if (!textEditor) return;
       if (commit) {
+        const node = project.wireframes.flatMap((wireframe) => wireframe.nodes).find((item) => item.id === textEditor.nodeId);
+        if (!node) {
+          setTextEditor(null);
+          return;
+        }
         const patch =
           textEditor.field === "options"
-            ? { options: textEditor.draft.split("\n") }
+            ? { options: parseOptionsEditDraft(node, textEditor.draft) }
             : { text: textEditor.draft };
         updateNode(textEditor.nodeId, patch);
       }
       setTextEditor(null);
     },
-    [textEditor, updateNode],
+    [project.wireframes, textEditor, updateNode],
   );
 
   const deleteNode = useCallback(
@@ -1230,6 +1260,15 @@ function App() {
     [followLink],
   );
 
+  const toggleInteractiveSelect = useCallback((node: CanvasNode) => {
+    if (node.kind !== "dropdown" && node.kind !== "comboBox") return;
+    setInteractiveSelect((current) => ({
+      nodeId: node.id,
+      selectedIndex: current?.nodeId === node.id ? current.selectedIndex : null,
+      open: current?.nodeId === node.id ? !current.open : true,
+    }));
+  }, []);
+
   const confirmLosingUnsavedChanges = useCallback(() => {
     if (!dirty) return true;
     return window.confirm("This project has unsaved changes. Continue without saving them?");
@@ -1239,16 +1278,22 @@ function App() {
     async (saveAs = false): Promise<boolean> => {
       let nextPath = saveAs ? null : projectPath;
       if (!nextPath || saveAs) {
-        const chosen = await saveDialog({
-          title: "Save Moqira Project",
-          defaultPath: defaultSaveFileName(project, saveAs ? null : projectPath),
-          filters: [{ name: "Moqira Project", extensions: ["moqira", "dsmockup", "json"] }],
-        });
-        if (!chosen) {
-          setStatus(saveAs ? "Save As canceled." : "Save canceled.");
-          return false;
+        if (projectDialogOpenRef.current) return false;
+        projectDialogOpenRef.current = true;
+        try {
+          const chosen = await saveDialog({
+            title: "Save Moqira Project",
+            defaultPath: defaultSaveFileName(project, saveAs ? null : projectPath),
+            filters: [{ name: "Moqira Project", extensions: ["moq", "moqira", "dsmockup", "json"] }],
+          });
+          if (!chosen) {
+            setStatus(saveAs ? "Save As canceled." : "Save canceled.");
+            return false;
+          }
+          nextPath = chosen;
+        } finally {
+          projectDialogOpenRef.current = false;
         }
-        nextPath = chosen;
       }
       const projectToSave = { ...project, name: projectNameFromPath(nextPath) };
       await saveProjectFile(nextPath, projectToSave);
@@ -1294,13 +1339,14 @@ function App() {
 
   const openProject = useCallback(async () => {
     if (openingProjectRef.current) return;
+    if (projectDialogOpenRef.current) return;
     if (!confirmLosingUnsavedChanges()) return;
     openingProjectRef.current = true;
+    projectDialogOpenRef.current = true;
     try {
       const chosen = await openDialog({
         title: "Open Moqira Project",
         multiple: false,
-        filters: [{ name: "Moqira Project", extensions: ["moqira", "dsmockup", "json"] }],
       });
       if (!chosen || Array.isArray(chosen)) return;
       const loaded = await openProjectFile(chosen);
@@ -1314,6 +1360,7 @@ function App() {
       setStatus(`Opened ${projectName}`);
     } finally {
       openingProjectRef.current = false;
+      projectDialogOpenRef.current = false;
     }
   }, [confirmLosingUnsavedChanges, resetProjectHistory, setSelectedId]);
 
@@ -1398,6 +1445,9 @@ function App() {
     if (!isTauri()) return;
     const cleanups: Array<() => void> = [];
     let disposed = false;
+    const runAfterMenuCloses = (action: () => void) => {
+      window.setTimeout(action, 0);
+    };
     const addMenuListener = <T,>(eventName: string, handler: (event: { payload: T }) => void) => {
       void listen<T>(eventName, handler).then((cleanup) => {
         if (disposed) cleanup();
@@ -1407,9 +1457,9 @@ function App() {
 
     addMenuListener("menu-new-project", () => menuActionsRef.current.newProject());
     addMenuListener("menu-new-wireframe", () => menuActionsRef.current.newWireframe());
-    addMenuListener("menu-open-project", () => void menuActionsRef.current.openProject());
+    addMenuListener("menu-open-project", () => runAfterMenuCloses(() => void menuActionsRef.current.openProject()));
     addMenuListener("menu-save-project", () => void menuActionsRef.current.saveProject(false));
-    addMenuListener("menu-save-project-as", () => void menuActionsRef.current.saveProject(true));
+    addMenuListener("menu-save-project-as", () => runAfterMenuCloses(() => void menuActionsRef.current.saveProject(true)));
     addMenuListener("menu-undo-project", () => menuActionsRef.current.undoProjectChange());
     addMenuListener("menu-redo-project", () => menuActionsRef.current.redoProjectChange());
     addMenuListener("menu-cut-node", () => menuActionsRef.current.cutNode());
@@ -1557,6 +1607,17 @@ function App() {
   }, [activeWireframe?.nodes, selectMany, selectOnly, selectedIds, selectionRect]);
 
   useEffect(() => {
+    if (!interactiveMode || !interactiveSelect?.open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".interactive-select-menu, .node-dropdown, .node-comboBox")) return;
+      setInteractiveSelect((current) => (current ? { ...current, open: false } : null));
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [interactiveMode, interactiveSelect?.open]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const modifier = event.metaKey || event.ctrlKey;
       const target = event.target as HTMLElement | null;
@@ -1579,6 +1640,10 @@ function App() {
       if (interactiveMode) {
         if (event.key === "Escape") {
           event.preventDefault();
+          if (interactiveSelect?.open) {
+            setInteractiveSelect((current) => (current ? { ...current, open: false } : null));
+            return;
+          }
           setInteractiveMode(false);
         }
         return;
@@ -1664,6 +1729,7 @@ function App() {
     cutNode,
     deleteNode,
     duplicateNode,
+    interactiveSelect?.open,
     interactiveMode,
     layerNode,
     lockNode,
@@ -1802,6 +1868,8 @@ function App() {
     return id;
   }, [activeWireframe, mutateProject]);
 
+  const effectiveRightCollapsed = rightCollapsed || interactiveMode;
+
   return (
     <div className={interactiveMode ? "app-shell links-active is-interactive" : "app-shell"}>
       <header
@@ -1826,16 +1894,6 @@ function App() {
           />
         </div>
         <div className="titlebar-actions">
-          <button
-            type="button"
-            className={interactiveMode ? "titlebar-pane-toggle is-active" : "titlebar-pane-toggle"}
-            title={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
-            aria-label={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
-            aria-pressed={interactiveMode}
-            onClick={() => setInteractiveMode((value) => !value)}
-          >
-            {interactiveMode ? <Square size={16} /> : <Play size={17} />}
-          </button>
           <div className="quick-access" role="combobox" aria-expanded={quickAccessOpen} aria-controls="quick-access-results">
             <Search size={15} aria-hidden="true" />
             <input
@@ -1905,6 +1963,16 @@ function App() {
           </div>
           <button
             type="button"
+            className={interactiveMode ? "titlebar-pane-toggle is-active" : "titlebar-pane-toggle"}
+            title={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
+            aria-label={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
+            aria-pressed={interactiveMode}
+            onClick={() => setInteractiveMode((value) => !value)}
+          >
+            {interactiveMode ? <Square size={16} /> : <Play size={17} />}
+          </button>
+          <button
+            type="button"
             className="titlebar-pane-toggle"
             title={rightCollapsed ? "Show properties" : "Hide properties"}
             onClick={() => setRightCollapsed((v) => !v)}
@@ -1914,7 +1982,7 @@ function App() {
         </div>
       </header>
 
-      <main className={`workspace${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}`}>
+      <main className={`workspace${leftCollapsed ? " left-collapsed" : ""}${effectiveRightCollapsed ? " right-collapsed" : ""}`}>
         <div className="component-library-shell">
           <div className="component-categories" aria-label="Component categories">
             {componentCategories.map((category) => (
@@ -1966,17 +2034,6 @@ function App() {
 
         {leftCollapsed ? null : (
         <aside className="left-pane">
-          <button
-            type="button"
-            className="project-properties-row"
-            onClick={() => {
-              setSelectedId(null);
-              setSettingsOpen(true);
-            }}
-          >
-            <Settings size={16} />
-            <span>Settings</span>
-          </button>
           <div className="pane-header">
             <h2>Wireframes</h2>
             <button type="button" onClick={addWireframe} title="Add wireframe">
@@ -2072,11 +2129,16 @@ function App() {
                   primarySelected={node.id === selectedId}
                   linksActive={interactiveMode}
                   editingLocked={interactiveMode}
+                  interactiveSelect={interactiveSelect?.nodeId === node.id ? interactiveSelect : null}
                   onSelect={(additive) => {
                     if (additive) toggleSelection(node.id);
                     else setSelectedId(node.id);
                   }}
                   onLinkClick={(key) => followNodeLink(node, key)}
+                  onInteractiveSelect={() => toggleInteractiveSelect(node)}
+                  onInteractiveOptionSelect={(index) => {
+                    setInteractiveSelect({ nodeId: node.id, selectedIndex: index, open: false });
+                  }}
                   onTextEdit={() => beginTextEdit(node)}
                   onMoveStart={(event) => {
                     if (interactiveMode) return;
@@ -2125,7 +2187,7 @@ function App() {
           </div>
         </section>
 
-        {rightCollapsed ? null : (
+        {effectiveRightCollapsed ? null : (
           <aside className="right-pane">
             <PropertiesPane
               selectedNode={selectedNode}
@@ -2238,8 +2300,11 @@ function CanvasItem({
   primarySelected,
   linksActive,
   editingLocked,
+  interactiveSelect,
   onSelect,
   onLinkClick,
+  onInteractiveSelect,
+  onInteractiveOptionSelect,
   onTextEdit,
   onMoveStart,
   onResizeStart,
@@ -2249,8 +2314,11 @@ function CanvasItem({
   primarySelected: boolean;
   linksActive: boolean;
   editingLocked: boolean;
+  interactiveSelect: InteractiveSelectState | null;
   onSelect: (additive: boolean) => void;
   onLinkClick: (key: string) => void;
+  onInteractiveSelect: () => void;
+  onInteractiveOptionSelect: (index: number) => void;
   onTextEdit: () => void;
   onMoveStart: (event: React.PointerEvent) => void;
   onResizeStart: (event: React.PointerEvent, handle: ResizeHandle) => void;
@@ -2292,6 +2360,10 @@ function CanvasItem({
           onLinkClick(linkTarget.dataset.linkKey ?? "whole");
           return;
         }
+        if (editingLocked && (node.kind === "dropdown" || node.kind === "comboBox")) {
+          onInteractiveSelect();
+          return;
+        }
         if (editingLocked) return;
         if (event.shiftKey || event.metaKey || event.ctrlKey) return;
         onSelect(event.shiftKey || event.metaKey || event.ctrlKey);
@@ -2303,8 +2375,17 @@ function CanvasItem({
       }}
     >
       <div className="canvas-node-clip">
-        <NodeContent node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />
+        <NodeContent node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={interactiveSelect?.selectedIndex ?? null} />
       </div>
+      {interactiveSelect?.open && (node.kind === "dropdown" || node.kind === "comboBox") ? (
+        <div className="interactive-select-menu" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+          {nodeOptions(node, ["First", "Second", "Third"]).map((option, index) => (
+            <button key={`${option}-${index}`} type="button" className={index === interactiveSelect.selectedIndex ? "is-selected" : ""} onClick={() => onInteractiveOptionSelect(index)}>
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {primarySelected && !editingLocked ? (
         <>
           {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => (
@@ -2408,16 +2489,18 @@ function NodeContent({
   selected = false,
   linksActive = false,
   onLinkClick,
+  selectedOptionIndex,
 }: {
   node: CanvasNode;
   selected?: boolean;
   linksActive?: boolean;
   onLinkClick?: (key: string) => void;
+  selectedOptionIndex?: number | null;
 }) {
   if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton"].includes(node.kind)) return <ButtonVisual node={node} />;
   if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(node.kind)) return <TextVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["checkbox", "checkboxList", "radioButton", "radioButtonGroup", "dropdown", "comboBox", "textbox", "textInput", "textArea", "searchBox", "searchBoxVoice", "colorPicker", "numericStepper", "onOffSwitch", "progressBar", "progressBarIndeterminate"].includes(node.kind)) {
-    return <FormVisual node={node} />;
+    return <FormVisual node={node} selectedOptionIndex={selectedOptionIndex} />;
   }
   if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["accordion", "alertBox", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} />;
@@ -2464,7 +2547,7 @@ function TextVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   return <div className={`editable-node-text text-visual text-visual-${node.kind}`} data-link-key="whole">{text}</div>;
 }
 
-function FormVisual({ node }: { node: CanvasNode }) {
+function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedOptionIndex?: number | null }) {
   if (node.kind === "checkbox") {
     return (
       <label className="checkbox-node">
@@ -2500,9 +2583,10 @@ function FormVisual({ node }: { node: CanvasNode }) {
     );
   }
   if (node.kind === "dropdown" || node.kind === "comboBox") {
+    const selectedOption = typeof selectedOptionIndex === "number" ? nodeOptions(node)[selectedOptionIndex] : null;
     return (
       <div className="dropdown-node">
-        <span>{node.text}</span>
+        <span>{selectedOption ?? node.text}</span>
         <ChevronDown size={16} />
       </div>
     );
@@ -2557,7 +2641,7 @@ function LinkedVisualItem({
 
 function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
   if (node.kind === "tabs") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
-  if (node.kind === "buttonBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} compact />;
+  if (node.kind === "buttonBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (node.kind === "tabBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
   if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</LinkedVisualItem>)}</div>;
   if (node.kind === "linkBar" || node.kind === "breadcrumbs") return <div className={`linkbar-node ${node.kind}`}>{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
@@ -2938,11 +3022,32 @@ function DeviceVisual({ node }: { node: CanvasNode }) {
   return <div className={`device-node ${node.kind}`}><span /><section /></div>;
 }
 
-function Segmented({ items, activeIndex, compact = false }: { items: string[]; activeIndex: number; compact?: boolean }) {
+function Segmented({
+  items,
+  activeIndex,
+  compact = false,
+  selected,
+  linksActive,
+  onLinkClick,
+}: {
+  items: string[];
+  activeIndex: number;
+  compact?: boolean;
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+}) {
   return (
     <div className={compact ? "segmented compact" : "segmented"}>
       {items.map((item, index) => (
-        <span key={`${item}-${index}`} className={index === activeIndex ? "is-active" : ""}>
+        <span
+          key={`${item}-${index}`}
+          className={index === activeIndex ? "is-active" : ""}
+          data-link-key={compact ? linkKeyForIndex("item", item, index) : undefined}
+          onPointerDown={(event) => {
+            if (compact && linksActive && selected && onLinkClick) event.stopPropagation();
+          }}
+        >
           {item}
         </span>
       ))}
@@ -3017,6 +3122,9 @@ function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
   if (node.kind === "treePane") {
     return parseTreePaneRows(node).map((row) => ({ key: row.key, label: row.label || "Untitled row" }));
   }
+  if (node.kind === "buttonBar") {
+    return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: `Item ${index + 1}` }));
+  }
   if (["linkBar", "breadcrumbs", "menuBar", "menu", "toolbar", "vTabs", "list", "listIcon"].includes(node.kind)) {
     return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item || `Item ${index + 1}` }));
   }
@@ -3065,6 +3173,33 @@ function LinkTargetSelect({
       <option value="duplicate-wireframe">Link to a Duplicate of This Wireframe</option>
       <option value="back">Go Back</option>
     </select>
+  );
+}
+
+function CommaOptionsInput({ node, onCommit }: { node: CanvasNode; onCommit: (options: string[]) => void }) {
+  const optionsDraft = optionsEditDraft(node);
+  const [draft, setDraft] = useState(() => optionsDraft);
+
+  useEffect(() => {
+    setDraft(optionsDraft);
+  }, [node.id, optionsDraft]);
+
+  const commit = () => {
+    onCommit(parseOptionsEditDraft(node, draft));
+  };
+
+  return (
+    <input
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 
@@ -3300,7 +3435,19 @@ function PropertiesPane({
           <textarea value={selectedNode.text ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("text", { text: event.target.value })} />
         </label>
       ) : null}
-      {selectedNode.options ? (
+      {selectedNode.options && ["buttonBar", "menuBar"].includes(selectedNode.kind) ? (
+        <label>
+          Options
+          <CommaOptionsInput
+            node={selectedNode}
+            onCommit={(options) => {
+              groupedChange("options", { options });
+              onNodeChangeEnd();
+            }}
+          />
+        </label>
+      ) : null}
+      {selectedNode.options && !["buttonBar", "menuBar"].includes(selectedNode.kind) ? (
         <label>
           Options
           <textarea value={selectedNode.options.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("options", { options: event.target.value.split("\n") })} />

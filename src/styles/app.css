@@ -337,29 +337,6 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
-.project-properties-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: calc(100% - 16px);
-  min-height: 38px;
-  margin: 8px 8px 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-  padding: 0 10px;
-  text-align: left;
-}
-
-.project-properties-row:hover {
-  background: var(--surface-muted);
-}
-
-.project-properties-row.is-active {
-  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-}
-
 .pane-header h2,
 .properties h2 {
   margin: 0;
@@ -588,6 +565,18 @@ button:disabled {
   cursor: grabbing;
 }
 
+.is-interactive .canvas-node,
+.is-interactive .canvas-node:active {
+  cursor: default;
+}
+
+.is-interactive .node-dropdown,
+.is-interactive .node-dropdown *,
+.is-interactive .node-comboBox,
+.is-interactive .node-comboBox * {
+  cursor: pointer;
+}
+
 .canvas-node-clip {
   position: absolute;
   inset: 0;
@@ -671,6 +660,41 @@ button:disabled {
 
 .textbox-node {
   color: color-mix(in srgb, var(--node-text) 60%, white);
+}
+
+.interactive-select-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  overflow: hidden;
+  border: 2px solid var(--node-stroke);
+  border-radius: 5px;
+  background: var(--node-fill);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
+}
+
+.interactive-select-menu button {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--node-stroke) 28%, transparent);
+  background: var(--node-fill);
+  color: var(--node-text);
+  cursor: pointer;
+  padding: 5px 10px;
+  text-align: left;
+}
+
+.interactive-select-menu button:first-child {
+  border-top: 0;
+}
+
+.interactive-select-menu button:hover,
+.interactive-select-menu button.is-selected {
+  background: color-mix(in srgb, var(--accent) 16%, var(--node-fill));
 }
 
 .checkbox-node {
@@ -933,6 +957,10 @@ button:disabled {
 }
 
 .links-active [data-link-key] {
+  cursor: pointer;
+}
+
+.links-active [data-link-key] * {
   cursor: pointer;
 }
 
