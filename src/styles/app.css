@@ -985,6 +985,10 @@ button:disabled {
 
 .linkbar-node span {
   color: #2563eb;
+}
+
+.linkbar-node:not(.breadcrumbs) span,
+.linkbar-node.breadcrumbs span:not(:last-child) .breadcrumb-label {
   text-decoration: underline;
 }
 

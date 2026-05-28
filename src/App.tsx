@@ -447,19 +447,23 @@ function editableTextField(node: CanvasNode): "text" | "options" | null {
 }
 
 function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft: string) {
-  if (field === "options" && ["buttonBar", "menuBar"].includes(node.kind)) return false;
+  if (field === "options" && usesCommaSeparatedOptions(node)) return false;
   if (field === "options") return true;
   if (["dataGrid", "stickyNote", "textArea", "textParagraph", "squigglyParagraph"].includes(node.kind)) return true;
   return draft.includes("\n");
 }
 
+function usesCommaSeparatedOptions(node: CanvasNode) {
+  return ["breadcrumbs", "buttonBar", "menuBar"].includes(node.kind);
+}
+
 function optionsEditDraft(node: CanvasNode) {
   const options = node.options ?? [];
-  return ["buttonBar", "menuBar"].includes(node.kind) ? options.join(", ") : options.join("\n");
+  return usesCommaSeparatedOptions(node) ? options.join(", ") : options.join("\n");
 }
 
 function parseOptionsEditDraft(node: CanvasNode, draft: string) {
-  if (["buttonBar", "menuBar"].includes(node.kind)) return draft.split(",").map((item) => item.trim()).filter(Boolean);
+  if (usesCommaSeparatedOptions(node)) return draft.split(",").map((item) => item.trim()).filter(Boolean);
   return draft.split("\n");
 }
 
@@ -820,6 +824,7 @@ function App() {
   const [snapGuides, setSnapGuides] = useState<number[]>([]);
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
+  const textEditorRef = useRef<TextEditorState | null>(null);
   const [status, setStatus] = useState("Ready");
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [closePromptOpen, setClosePromptOpen] = useState(false);
@@ -843,6 +848,7 @@ function App() {
   useEffect(() => {
     if (!interactiveMode) return;
     setSelectedIds([]);
+    textEditorRef.current = null;
     setTextEditor(null);
     setContextMenu(null);
     setDragState(null);
@@ -1168,7 +1174,7 @@ function App() {
     const maxY = Math.max(12, window.innerHeight - height - 12);
 
     setSelectedId(node.id);
-    setTextEditor({
+    const nextEditor = {
       nodeId: node.id,
       field,
       draft,
@@ -1178,27 +1184,33 @@ function App() {
       height,
       maxHeight: maxEditorHeight,
       multiline,
-    });
+    };
+    textEditorRef.current = nextEditor;
+    setTextEditor(nextEditor);
   }, [setSelectedId]);
 
   const closeTextEditor = useCallback(
-    (commit: boolean) => {
-      if (!textEditor) return;
+    (commit: boolean, draftOverride?: string) => {
+      const editor = textEditorRef.current;
+      if (!editor) return;
       if (commit) {
-        const node = project.wireframes.flatMap((wireframe) => wireframe.nodes).find((item) => item.id === textEditor.nodeId);
+        const node = project.wireframes.flatMap((wireframe) => wireframe.nodes).find((item) => item.id === editor.nodeId);
         if (!node) {
+          textEditorRef.current = null;
           setTextEditor(null);
           return;
         }
+        const draft = draftOverride ?? editor.draft;
         const patch =
-          textEditor.field === "options"
-            ? { options: parseOptionsEditDraft(node, textEditor.draft) }
-            : { text: textEditor.draft };
-        updateNode(textEditor.nodeId, patch);
+          editor.field === "options"
+            ? { options: parseOptionsEditDraft(node, draft) }
+            : { text: draft };
+        updateNode(editor.nodeId, patch);
       }
+      textEditorRef.current = null;
       setTextEditor(null);
     },
-    [project.wireframes, textEditor, updateNode],
+    [project.wireframes, updateNode],
   );
 
   const deleteNode = useCallback(
@@ -1311,11 +1323,11 @@ function App() {
   }, [mutateActiveWireframe]);
 
   const selectNone = useCallback(() => {
+    closeTextEditor(true);
     setSelectedId(null);
     setContextMenu(null);
-    setTextEditor(null);
     setStatus("Cleared selection");
-  }, [setSelectedId]);
+  }, [closeTextEditor, setSelectedId]);
 
   const selectWireframe = useCallback((wireframeId: string) => {
     endProjectHistoryGroup();
@@ -2195,7 +2207,7 @@ function App() {
                 if (event.button !== 0 || event.target !== event.currentTarget) return;
                 const point = canvasPointFromEvent(event);
                 setContextMenu(null);
-                setTextEditor(null);
+                closeTextEditor(true);
                 setSelectionRect({
                   startX: point.x,
                   startY: point.y,
@@ -2213,7 +2225,7 @@ function App() {
                 if (selectionRect?.moved) return;
                 if (event.target === event.currentTarget && !event.shiftKey && !event.metaKey && !event.ctrlKey) setSelectedId(null);
                 setContextMenu(null);
-                setTextEditor(null);
+                closeTextEditor(true);
               }}
               onContextMenu={openCanvasContextMenu}
             >
@@ -2371,8 +2383,15 @@ function App() {
       {textEditor ? (
         <FloatingTextEditor
           editor={textEditor}
-          onChange={(draft) => setTextEditor((current) => (current ? { ...current, draft } : current))}
-          onCommit={() => closeTextEditor(true)}
+          onChange={(draft) => {
+            setTextEditor((current) => {
+              if (!current) return current;
+              const nextEditor = { ...current, draft };
+              textEditorRef.current = nextEditor;
+              return nextEditor;
+            });
+          }}
+          onCommit={(draft) => closeTextEditor(true, draft)}
           onCancel={() => closeTextEditor(false)}
         />
       ) : null}
@@ -2754,7 +2773,17 @@ function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: 
   if (node.kind === "buttonBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (node.kind === "tabBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
   if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</LinkedVisualItem>)}</div>;
-  if (node.kind === "linkBar" || node.kind === "breadcrumbs") return <div className={`linkbar-node ${node.kind}`}>{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
+  if (node.kind === "linkBar" || node.kind === "breadcrumbs") {
+    return (
+      <div className={`linkbar-node ${node.kind}`}>
+        {nodeOptions(node).map((item, index) => (
+          <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>
+            {node.kind === "breadcrumbs" ? <span className="breadcrumb-label">{item}</span> : item}
+          </LinkedVisualItem>
+        ))}
+      </div>
+    );
+  }
   if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
   if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
   if (node.kind === "appBar") return <div className="app-bar-node"><span>{node.text}</span><small>▾</small></div>;
@@ -3173,7 +3202,7 @@ function FloatingTextEditor({
 }: {
   editor: TextEditorState;
   onChange: (draft: string) => void;
-  onCommit: () => void;
+  onCommit: (draft?: string) => void;
   onCancel: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -3267,7 +3296,7 @@ function FloatingTextEditor({
         onSelect={(event) => rememberTextInputSelection(event.currentTarget)}
         onKeyUp={(event) => rememberTextInputSelection(event.currentTarget)}
         onMouseUp={(event) => rememberTextInputSelection(event.currentTarget)}
-        onBlur={onCommit}
+        onBlur={(event) => onCommit(event.currentTarget.value)}
         onKeyDown={(event) => {
           const textarea = event.currentTarget;
           const modifier = event.metaKey || event.ctrlKey;
@@ -3312,11 +3341,11 @@ function FloatingTextEditor({
           }
           if (!editor.multiline && event.key === "Enter") {
             event.preventDefault();
-            onCommit();
+            onCommit(textarea.value);
           }
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
-            onCommit();
+            onCommit(textarea.value);
           }
         }}
       />
@@ -3649,7 +3678,7 @@ function PropertiesPane({
           <textarea value={selectedNode.text ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("text", { text: event.target.value })} />
         </label>
       ) : null}
-      {selectedNode.options && ["buttonBar", "menuBar"].includes(selectedNode.kind) ? (
+      {selectedNode.options && usesCommaSeparatedOptions(selectedNode) ? (
         <label>
           Options
           <CommaOptionsInput
@@ -3661,7 +3690,7 @@ function PropertiesPane({
           />
         </label>
       ) : null}
-      {selectedNode.options && !["buttonBar", "menuBar"].includes(selectedNode.kind) ? (
+      {selectedNode.options && !usesCommaSeparatedOptions(selectedNode) ? (
         <label>
           Options
           <textarea value={selectedNode.options.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("options", { options: event.target.value.split("\n") })} />
