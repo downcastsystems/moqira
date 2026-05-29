@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Clipboard,
   Italic,
+  PanelBottom,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -18,6 +19,7 @@ import {
   Layers,
   MousePointer2,
   PanelRight,
+  PanelTop,
   Play,
   Plus,
   Search,
@@ -167,9 +169,15 @@ const componentLibrary: ComponentDefinition[] = [
   component("progressBar", "Progress Bar", "Forms", "BatteryMedium", 170, 28, { value: 45 }),
   component("progressBarIndeterminate", "Progress (Ind.)", "Forms", "MoreHorizontal", 170, 28, { variant: "indeterminate" }),
 
-  component("tabs", "Tabs", "Navigation", "tabs", 260, 52, { options: ["One", "Two", "Three"], activeIndex: 0 }),
+  component("tabs", "Tabs", "Navigation", "tabs", 260, 100, {
+    options: ["One", "Two", "Three", "Four"],
+    activeIndex: -1,
+    showBorder: true,
+    showScrollbar: false,
+    tabPlacement: "top",
+    tabAlignment: "left",
+  }),
   component("buttonBar", "Button Bar", "Navigation", "buttonBar", 240, 40, { options: ["One", "Two", "Three"], activeIndex: 0 }),
-  component("tabBar", "Tab Bar", "Navigation", "PanelTop", 260, 72, { options: ["One", "Two", "Three", "Four"], activeIndex: 0 }),
   component("vTabs", "V.Tabs", "Navigation", "PanelLeft", 150, 160, { options: ["First Tab", "Second Tab", "Third Tab", "Fourth Tab"], activeIndex: 1 }),
   component("linkBar", "Link Bar", "Navigation", "Link", 250, 38, { options: ["Home", "Products", "Company", "Blog"] }),
   component("breadcrumbs", "Breadcrumbs", "Navigation", "ChevronRight", 240, 34, { options: ["Home", "Products", "Bags", "Feature"] }),
@@ -465,6 +473,14 @@ function optionsEditDraft(node: CanvasNode) {
 function parseOptionsEditDraft(node: CanvasNode, draft: string) {
   if (usesCommaSeparatedOptions(node)) return draft.split(",").map((item) => item.trim()).filter(Boolean);
   return draft.split("\n");
+}
+
+function isTabsNode(node: CanvasNode) {
+  return node.kind === "tabs" || node.kind === "tabBar";
+}
+
+function displayNodeName(node: CanvasNode) {
+  return isTabsNode(node) ? "Tabs" : node.name;
 }
 
 type TextInputElement = HTMLInputElement | HTMLTextAreaElement;
@@ -2461,6 +2477,7 @@ function CanvasItem({
     "--node-stroke": node.stroke ?? "#111827",
     "--node-text": node.textColor ?? "#111827",
     "--node-font-size": `${node.fontSize ?? 14}px`,
+    opacity: (node.opacity ?? 100) / 100,
   } as React.CSSProperties;
 
   return (
@@ -2769,9 +2786,8 @@ function LinkedVisualItem({
 }
 
 function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
-  if (node.kind === "tabs") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
+  if (isTabsNode(node)) return <TabsVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (node.kind === "buttonBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
-  if (node.kind === "tabBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} />;
   if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</LinkedVisualItem>)}</div>;
   if (node.kind === "linkBar" || node.kind === "breadcrumbs") {
     return (
@@ -2790,6 +2806,34 @@ function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: 
   if (node.kind === "playback") return <div className="playback-node"><span>◀◀</span><span>▶</span><span>▶▶</span></div>;
   if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
   return null;
+}
+
+function TabsVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
+  const items = nodeOptions(node, ["One", "Two", "Three", "Four"]);
+  const activeIndex = clamp(node.activeIndex ?? -1, -1, items.length - 1);
+  const placement = node.tabPlacement ?? "top";
+  const alignment = node.tabAlignment ?? "left";
+  return (
+    <div className={`tabs-node tabs-${placement} tabs-align-${alignment}${node.showBorder === false ? " no-border" : " has-border"}${node.showScrollbar ? " has-scrollbar" : ""}${node.textBold ? " tabs-text-bold" : ""}${node.textItalic ? " tabs-text-italic" : ""}${node.textUnderline ? " tabs-text-underline" : ""}`}>
+      <div className="tabs-strip">
+        {items.map((item, index) => (
+          <LinkedVisualItem
+            key={`${item}-${index}`}
+            linkKey={linkKeyForIndex("item", item, index)}
+            selected={selected}
+            linksActive={linksActive}
+            onLinkClick={onLinkClick}
+            className={`tabs-tab${index === activeIndex ? " is-active" : ""}`}
+          >
+            {item}
+          </LinkedVisualItem>
+        ))}
+      </div>
+      <div className="tabs-panel">
+        {node.showScrollbar ? <span className="tabs-scrollbar" /> : null}
+      </div>
+    </div>
+  );
 }
 
 function ContainerVisual({ node }: { node: CanvasNode }) {
@@ -3365,6 +3409,9 @@ function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
   if (node.kind === "treePane") {
     return parseTreePaneRows(node).map((row) => ({ key: row.key, label: row.label || "Untitled row" }));
   }
+  if (isTabsNode(node)) {
+    return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item || `Tab ${index + 1}` }));
+  }
   if (node.kind === "buttonBar") {
     return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: `Item ${index + 1}` }));
   }
@@ -3446,6 +3493,101 @@ function CommaOptionsInput({ node, onCommit }: { node: CanvasNode; onCommit: (op
   );
 }
 
+function TabsProperties({
+  node,
+  onChange,
+  onChangeEnd,
+}: {
+  node: CanvasNode;
+  onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
+  onChangeEnd: () => void;
+}) {
+  const options = nodeOptions(node, ["One", "Two", "Three", "Four"]);
+  const activeIndex = clamp(node.activeIndex ?? -1, -1, options.length - 1);
+  const tabPlacement = node.tabPlacement ?? "top";
+  const tabAlignment = node.tabAlignment ?? "left";
+
+  return (
+    <>
+      <section className="property-section">
+        <h3>Scrollbar</h3>
+        <label className="icon-toggle-setting" title="Show scrollbar">
+          <input
+            type="checkbox"
+            checked={Boolean(node.showScrollbar)}
+            onChange={(event) => onChange("showScrollbar", { showScrollbar: event.target.checked })}
+          />
+          <span aria-hidden="true" />
+        </label>
+      </section>
+      <section className="property-section">
+        <h3>Selection</h3>
+        <select
+          value={String(activeIndex)}
+          onChange={(event) => onChange("activeIndex", { activeIndex: Number(event.target.value) })}
+        >
+          <option value="-1">None</option>
+          {options.map((item, index) => (
+            <option key={`${item}-${index}`} value={index}>
+              {item || `Tab ${index + 1}`}
+            </option>
+          ))}
+        </select>
+      </section>
+      <section className="property-section">
+        <h3>Tabs Position</h3>
+        <div className="tabs-position-controls">
+          <div className="toolbar-group">
+            <button type="button" className={tabPlacement === "top" ? "is-active" : ""} title="Tabs on top" onClick={() => onChange("tabPlacement", { tabPlacement: "top" })}>
+              <PanelTop size={18} />
+            </button>
+            <button type="button" className={tabPlacement === "bottom" ? "is-active" : ""} title="Tabs on bottom" onClick={() => onChange("tabPlacement", { tabPlacement: "bottom" })}>
+              <PanelBottom size={18} />
+            </button>
+          </div>
+          <div className="toolbar-group">
+            <button type="button" className={tabAlignment === "left" ? "is-active" : ""} title="Align tabs left" onClick={() => onChange("tabAlignment", { tabAlignment: "left" })}>
+              <AlignLeft size={18} />
+            </button>
+            <button type="button" className={tabAlignment === "center" ? "is-active" : ""} title="Align tabs center" onClick={() => onChange("tabAlignment", { tabAlignment: "center" })}>
+              <AlignCenter size={18} />
+            </button>
+            <button type="button" className={tabAlignment === "right" ? "is-active" : ""} title="Align tabs right" onClick={() => onChange("tabAlignment", { tabAlignment: "right" })}>
+              <AlignRight size={18} />
+            </button>
+          </div>
+        </div>
+      </section>
+      <section className="property-section">
+        <h3>Text</h3>
+        <div className="text-toolbar tabs-text-toolbar">
+          <div className="toolbar-group">
+            <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
+            <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
+            <button type="button" className={node.textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !node.textUnderline })}><Underline size={18} /></button>
+          </div>
+          <input
+            type="number"
+            min={8}
+            max={72}
+            value={node.fontSize ?? 14}
+            onBlur={onChangeEnd}
+            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+          />
+        </div>
+      </section>
+      <label>
+        Tab Labels
+        <textarea
+          value={options.join("\n")}
+          onBlur={onChangeEnd}
+          onChange={(event) => onChange("options", { options: event.target.value.split("\n") })}
+        />
+      </label>
+    </>
+  );
+}
+
 function PropertiesPane({
   selectedNode,
   selectedCount,
@@ -3515,6 +3657,7 @@ function PropertiesPane({
     onNodeChange(patch, { groupKey: `property:${selectedNode.id}:${property}` });
   };
   const isTextNode = ["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(selectedNode.kind);
+  const isTabs = isTabsNode(selectedNode);
   const isDataGrid = selectedNode.kind === "dataGrid";
   const linkableElements = linkableElementsForNode(selectedNode);
   const changeLink = (key: string, link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => {
@@ -3533,7 +3676,7 @@ function PropertiesPane({
   return (
     <div className="properties">
       <div className="properties-title">
-        <h2>{selectedCount > 1 ? `${selectedCount} selected` : selectedNode.name}</h2>
+        <h2>{selectedCount > 1 ? `${selectedCount} selected` : displayNodeName(selectedNode)}</h2>
         <ChevronDown size={20} />
       </div>
       <section className="property-section">
@@ -3569,7 +3712,36 @@ function PropertiesPane({
           <button type="button" onClick={() => onLayer("forward")} title="Bring forward"><BringToFront size={18} /><span>Forward</span></button>
         </div>
       </section>
-      {!isTextNode ? (
+      {isTabs ? (
+        <>
+          <section className="property-section">
+            <h3>Border</h3>
+            <label className="toggle-setting">
+              <input
+                type="checkbox"
+                checked={selectedNode.showBorder !== false}
+                onChange={(event) => groupedChange("showBorder", { showBorder: event.target.checked })}
+              />
+              <span>Show Border</span>
+            </label>
+          </section>
+          <label className="property-swatch-row">
+            Color
+            <input type="color" value={selectedNode.fill ?? "#ffffff"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("fill", { fill: event.target.value })} />
+          </label>
+          <label className="property-range-row">
+            Opacity
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={selectedNode.opacity ?? 100}
+              onBlur={onNodeChangeEnd}
+              onChange={(event) => groupedChange("opacity", { opacity: Number(event.target.value) })}
+            />
+          </label>
+        </>
+      ) : !isTextNode ? (
         <>
           <label>
             Fill
@@ -3581,10 +3753,12 @@ function PropertiesPane({
           </label>
         </>
       ) : null}
-      <label className="property-swatch-row">
-        Text Color
-        <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
-      </label>
+      {!isTabs ? (
+        <label className="property-swatch-row">
+          Text Color
+          <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
+        </label>
+      ) : null}
       {linkableElements.length ? (
         <section className="property-section">
           <div className="property-section-heading">
@@ -3605,7 +3779,9 @@ function PropertiesPane({
           </div>
         </section>
       ) : null}
-      {isTextNode ? (
+      {isTabs ? (
+        <TabsProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
+      ) : isTextNode ? (
         <>
           <section className="property-section">
             <h3>State</h3>
@@ -3678,7 +3854,7 @@ function PropertiesPane({
           <textarea value={selectedNode.text ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("text", { text: event.target.value })} />
         </label>
       ) : null}
-      {selectedNode.options && usesCommaSeparatedOptions(selectedNode) ? (
+      {selectedNode.options && !isTabs && usesCommaSeparatedOptions(selectedNode) ? (
         <label>
           Options
           <CommaOptionsInput
@@ -3690,7 +3866,7 @@ function PropertiesPane({
           />
         </label>
       ) : null}
-      {selectedNode.options && !usesCommaSeparatedOptions(selectedNode) ? (
+      {selectedNode.options && !isTabs && !usesCommaSeparatedOptions(selectedNode) ? (
         <label>
           Options
           <textarea value={selectedNode.options.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("options", { options: event.target.value.split("\n") })} />

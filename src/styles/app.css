@@ -930,6 +930,144 @@ button:disabled {
   background: color-mix(in srgb, var(--accent) 18%, var(--node-fill));
 }
 
+.tabs-node {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  color: var(--node-text);
+}
+
+.tabs-node.tabs-bottom {
+  flex-direction: column-reverse;
+}
+
+.tabs-strip {
+  display: flex;
+  align-items: flex-end;
+  height: clamp(28px, 34%, 38px);
+  min-height: 26px;
+  padding: 0 8px;
+  overflow: hidden;
+}
+
+.tabs-bottom .tabs-strip {
+  align-items: flex-start;
+}
+
+.tabs-align-left .tabs-strip {
+  justify-content: flex-start;
+}
+
+.tabs-align-center .tabs-strip {
+  justify-content: center;
+}
+
+.tabs-align-right .tabs-strip {
+  justify-content: flex-end;
+}
+
+.tabs-tab {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  max-width: 45%;
+  height: 100%;
+  margin-right: -1px;
+  padding: 0 12px;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs-text-bold .tabs-tab {
+  font-weight: 800;
+}
+
+.tabs-text-italic .tabs-tab {
+  font-style: italic;
+}
+
+.tabs-text-underline .tabs-tab {
+  text-decoration: underline;
+}
+
+.tabs-tab::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 2px solid var(--node-stroke);
+  background: color-mix(in srgb, var(--node-fill) 72%, #a3a3a3);
+}
+
+.tabs-bottom .tabs-tab::before {
+  border-bottom: 2px solid var(--node-stroke);
+}
+
+.tabs-tab.is-active {
+  z-index: 3;
+}
+
+.tabs-tab.is-active::before {
+  background: var(--node-fill);
+  border-bottom: 0;
+}
+
+.tabs-bottom .tabs-tab.is-active::before {
+  border-top: 0;
+  border-bottom: 2px solid var(--node-stroke);
+}
+
+.tabs-panel {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 2px solid var(--node-stroke);
+  background: var(--node-fill);
+}
+
+.tabs-top .tabs-panel {
+  margin-top: -2px;
+}
+
+.tabs-bottom .tabs-panel {
+  margin-bottom: -2px;
+}
+
+.tabs-node.no-border .tabs-tab::before,
+.tabs-node.no-border .tabs-panel {
+  border-color: transparent;
+}
+
+.tabs-scrollbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 13px;
+  border: 2px solid var(--node-stroke);
+  background: color-mix(in srgb, var(--node-fill) 82%, #d1d5db);
+}
+
+.tabs-scrollbar::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 5px;
+  height: 18px;
+  border: 1px solid var(--node-stroke);
+  background: var(--node-stroke);
+  transform: translateX(-50%);
+}
+
 .v-tabs-node,
 .menu-node,
 .list-node,
@@ -2085,6 +2223,19 @@ button:disabled {
   border-radius: 6px;
 }
 
+.property-range-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
+  align-items: center;
+  gap: 14px !important;
+}
+
+.property-range-row input[type="range"] {
+  min-height: 28px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
 .property-section-heading {
   display: flex;
   align-items: center;
@@ -2150,6 +2301,73 @@ button:disabled {
   display: grid;
   grid-template-columns: 1fr 1fr 74px;
   gap: 10px;
+}
+
+.tabs-text-toolbar {
+  grid-template-columns: minmax(0, 1fr) 74px;
+}
+
+.tabs-position-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  gap: 10px;
+}
+
+.icon-toggle-setting {
+  display: inline-flex !important;
+  width: 52px;
+  padding: 0 !important;
+}
+
+.icon-toggle-setting input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.icon-toggle-setting span {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--surface-strong);
+  cursor: pointer;
+}
+
+.icon-toggle-setting span::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 20px;
+  width: 12px;
+  height: 22px;
+  border: 2px solid var(--text);
+  background: var(--surface);
+}
+
+.icon-toggle-setting span::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: 24px;
+  width: 4px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text);
+}
+
+.icon-toggle-setting input:checked + span {
+  background: var(--accent);
+}
+
+.icon-toggle-setting input:checked + span::before {
+  border-color: var(--accent-contrast);
+  background: transparent;
+}
+
+.icon-toggle-setting input:checked + span::after {
+  background: var(--accent-contrast);
 }
 
 .toolbar-group {

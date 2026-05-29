@@ -110,6 +110,14 @@ export type CanvasNode = {
   checked?: boolean;
   options?: string[];
   activeIndex?: number;
+  showBorder?: boolean;
+  showScrollbar?: boolean;
+  opacity?: number;
+  tabPlacement?: "top" | "bottom";
+  tabAlignment?: "left" | "center" | "right";
+  textBold?: boolean;
+  textItalic?: boolean;
+  textUnderline?: boolean;
   icon?: string;
   value?: string | number;
   orientation?: "horizontal" | "vertical";
