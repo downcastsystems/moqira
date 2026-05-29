@@ -22,6 +22,7 @@ import {
   PanelTop,
   Play,
   Plus,
+  Save,
   Search,
   SendToBack,
   Settings,
@@ -2101,6 +2102,15 @@ function App() {
           </div>
           <button
             type="button"
+            className="titlebar-pane-toggle"
+            title="Save project"
+            aria-label="Save project"
+            onClick={() => void saveProject(false)}
+          >
+            <Save size={17} />
+          </button>
+          <button
+            type="button"
             className={interactiveMode ? "titlebar-pane-toggle is-active" : "titlebar-pane-toggle"}
             title={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
             aria-label={interactiveMode ? "Stop interactive mode" : "Play interactive mode"}
@@ -2797,7 +2807,11 @@ function LinkedVisualItem({
 
 function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
   if (isTabsNode(node)) return <TabsVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
-  if (node.kind === "buttonBar") return <Segmented items={nodeOptions(node)} activeIndex={node.activeIndex ?? 0} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
+  if (node.kind === "buttonBar") {
+    const items = nodeOptions(node);
+    const activeIndex = items.length ? clamp(node.activeIndex ?? 0, 0, items.length - 1) : -1;
+    return <Segmented items={items} activeIndex={activeIndex} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
+  }
   if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</LinkedVisualItem>)}</div>;
   if (node.kind === "linkBar" || node.kind === "breadcrumbs") {
     return (
@@ -3503,6 +3517,35 @@ function CommaOptionsInput({ node, onCommit }: { node: CanvasNode; onCommit: (op
   );
 }
 
+function ButtonBarProperties({
+  node,
+  onChange,
+}: {
+  node: CanvasNode;
+  onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
+}) {
+  const options = nodeOptions(node);
+  const activeIndex = options.length ? clamp(node.activeIndex ?? 0, 0, options.length - 1) : -1;
+
+  return (
+    <section className="property-section">
+      <h3>Selection</h3>
+      <select
+        value={String(activeIndex)}
+        disabled={!options.length}
+        onChange={(event) => onChange("activeIndex", { activeIndex: Number(event.target.value) })}
+      >
+        {!options.length ? <option value="-1">No Items</option> : null}
+        {options.map((item, index) => (
+          <option key={`${item}-${index}`} value={index}>
+            {item || `Item ${index + 1}`}
+          </option>
+        ))}
+      </select>
+    </section>
+  );
+}
+
 function TabsProperties({
   node,
   onChange,
@@ -3670,6 +3713,7 @@ function PropertiesPane({
   const textAlign = selectedNode.textAlign ?? "left";
   const textUnderline = selectedNode.textUnderline ?? selectedNode.kind === "link";
   const isTabs = isTabsNode(selectedNode);
+  const isButtonBar = selectedNode.kind === "buttonBar";
   const isDataGrid = selectedNode.kind === "dataGrid";
   const linkableElements = linkableElementsForNode(selectedNode);
   const changeLink = (key: string, link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => {
@@ -3790,6 +3834,9 @@ function PropertiesPane({
             ))}
           </div>
         </section>
+      ) : null}
+      {isButtonBar ? (
+        <ButtonBarProperties node={selectedNode} onChange={groupedChange} />
       ) : null}
       {isTabs ? (
         <TabsProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
