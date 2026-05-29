@@ -2669,6 +2669,16 @@ function ButtonVisual({ node }: { node: CanvasNode }) {
 
 function TextVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
   const text = node.text ?? "";
+  const textAlign = node.textAlign ?? "left";
+  const textClassName = [
+    "editable-node-text",
+    "text-visual",
+    `text-visual-${node.kind}`,
+    `text-align-${textAlign}`,
+    node.textBold ? "text-format-bold" : "",
+    node.textItalic ? "text-format-italic" : "",
+    (node.textUnderline ?? node.kind === "link") ? "text-format-underline" : "",
+  ].filter(Boolean).join(" ");
   if (node.kind === "squigglyParagraph") {
     return (
       <div className="squiggle-paragraph">
@@ -2681,7 +2691,7 @@ function TextVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   }
   if (node.kind === "textParagraph") {
     return (
-      <div className="editable-node-text text-visual text-visual-textParagraph">
+      <div className={textClassName}>
         {text.split("\n").map((line, index) => (
           <span key={`${line}-${index}`} className="markdown-line">
             {renderInlineMarkdown(line, selected, linksActive, onLinkClick)}
@@ -2690,7 +2700,7 @@ function TextVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
       </div>
     );
   }
-  return <div className={`editable-node-text text-visual text-visual-${node.kind}`} data-link-key="whole">{text}</div>;
+  return <div className={textClassName} data-link-key="whole">{text}</div>;
 }
 
 function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedOptionIndex?: number | null }) {
@@ -3657,6 +3667,8 @@ function PropertiesPane({
     onNodeChange(patch, { groupKey: `property:${selectedNode.id}:${property}` });
   };
   const isTextNode = ["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(selectedNode.kind);
+  const textAlign = selectedNode.textAlign ?? "left";
+  const textUnderline = selectedNode.textUnderline ?? selectedNode.kind === "link";
   const isTabs = isTabsNode(selectedNode);
   const isDataGrid = selectedNode.kind === "dataGrid";
   const linkableElements = linkableElementsForNode(selectedNode);
@@ -3794,14 +3806,14 @@ function PropertiesPane({
             <h3>Text</h3>
             <div className="text-toolbar">
               <div className="toolbar-group">
-                <button type="button" title="Bold"><Bold size={18} /></button>
-                <button type="button" title="Italic"><Italic size={18} /></button>
-                <button type="button" title="Underline"><Underline size={18} /></button>
+                <button type="button" className={selectedNode.textBold ? "is-active" : ""} title="Bold" onClick={() => groupedChange("textBold", { textBold: !selectedNode.textBold })}><Bold size={18} /></button>
+                <button type="button" className={selectedNode.textItalic ? "is-active" : ""} title="Italic" onClick={() => groupedChange("textItalic", { textItalic: !selectedNode.textItalic })}><Italic size={18} /></button>
+                <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => groupedChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
               </div>
               <div className="toolbar-group">
-                <button type="button" className="is-active" title="Align left"><AlignLeft size={18} /></button>
-                <button type="button" title="Align center"><AlignCenter size={18} /></button>
-                <button type="button" title="Align right"><AlignRight size={18} /></button>
+                <button type="button" className={textAlign === "left" ? "is-active" : ""} title="Align left" onClick={() => groupedChange("textAlign", { textAlign: "left" })}><AlignLeft size={18} /></button>
+                <button type="button" className={textAlign === "center" ? "is-active" : ""} title="Align center" onClick={() => groupedChange("textAlign", { textAlign: "center" })}><AlignCenter size={18} /></button>
+                <button type="button" className={textAlign === "right" ? "is-active" : ""} title="Align right" onClick={() => groupedChange("textAlign", { textAlign: "right" })}><AlignRight size={18} /></button>
               </div>
               <input
                 type="number"

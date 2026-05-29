@@ -115,6 +115,7 @@ export type CanvasNode = {
   opacity?: number;
   tabPlacement?: "top" | "bottom";
   tabAlignment?: "left" | "center" | "right";
+  textAlign?: "left" | "center" | "right";
   textBold?: boolean;
   textItalic?: boolean;
   textUnderline?: boolean;
