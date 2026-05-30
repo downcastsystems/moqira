@@ -427,6 +427,35 @@ button:disabled {
   padding: 6px 10px 0;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-color: color-mix(in srgb, var(--surface-strong) 64%, var(--surface)) transparent;
+  scrollbar-width: thin;
+}
+
+.component-categories::-webkit-scrollbar,
+.component-library::-webkit-scrollbar {
+  height: 8px;
+}
+
+.component-categories::-webkit-scrollbar-track,
+.component-library::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.component-categories::-webkit-scrollbar-thumb,
+.component-library::-webkit-scrollbar-thumb {
+  border: 2px solid var(--surface-muted);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-strong) 64%, var(--surface));
+}
+
+html[data-theme="dark"] .component-categories,
+html[data-theme="dark"] .component-library {
+  scrollbar-color: #7f8b9c transparent;
+}
+
+html[data-theme="dark"] .component-categories::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
+  background: #7f8b9c;
 }
 
 .component-categories button {
@@ -456,6 +485,8 @@ button:disabled {
   padding: 6px 10px 8px;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-color: color-mix(in srgb, var(--surface-strong) 64%, var(--surface)) transparent;
+  scrollbar-width: thin;
 }
 
 .library-item {

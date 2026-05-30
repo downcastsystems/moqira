@@ -136,7 +136,7 @@ const componentLibrary: ComponentDefinition[] = [
   component("textTitle", "Text Title", "Text", "Heading1", 240, 48, { text: "A Big Title", fontSize: 28 }),
   component("textSubtitle", "Text Subtitle", "Text", "Heading2", 220, 42, { text: "A Subtitle", fontSize: 22 }),
   component("textParagraph", "Text Paragraph", ["Common", "Text"], "Pilcrow", 275, 80, {
-    text: "A *paragraph* of {color:red}text{color} with an [unassigned link].\nA _second_ &row& of ~text~ with a [web link]\nAn icon :circle-plus-solid: inline with text.",
+    text: "A **paragraph** of {color:red}text{color} with an [unassigned link].\nA *second* <u>row</u> of ~~text~~ with a [web link]\nAn icon :circle-plus-solid: inline with text.",
     fontSize: 13,
   }),
   component("link", "Link", ["Common", "Text"], "Link", 120, 34, { text: "a link", textColor: "#2563eb", fontSize: 24 }),
@@ -470,7 +470,7 @@ function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft:
 }
 
 function usesCommaSeparatedOptions(node: CanvasNode) {
-  return ["breadcrumbs", "buttonBar", "menuBar"].includes(node.kind);
+  return ["breadcrumbs", "buttonBar", "linkBar", "menuBar", "tabs", "tabBar"].includes(node.kind);
 }
 
 function optionsEditDraft(node: CanvasNode) {
@@ -2671,7 +2671,7 @@ function CanvasItem({
         <div className="interactive-select-menu" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
           {nodeOptions(node, ["First", "Second", "Third"]).map((option, index) => (
             <button key={`${option}-${index}`} type="button" className={index === interactiveSelect.selectedIndex ? "is-selected" : ""} onClick={() => onInteractiveOptionSelect(index)}>
-              {option}
+              {renderInlineFormatting(option)}
             </button>
           ))}
         </div>
@@ -2731,9 +2731,17 @@ function iconNameFromMarkdown(name: string) {
     .join("");
 }
 
-function renderInlineMarkdown(text: string, selected = false, linksActive = false, onLinkClick?: (key: string) => void): React.ReactNode[] {
+type InlineMarkdownOptions = {
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+  links?: boolean;
+};
+
+function renderInlineMarkdown(text: string, options: InlineMarkdownOptions = {}): React.ReactNode[] {
+  const { selected = false, linksActive = false, onLinkClick, links = true } = options;
   const nodes: React.ReactNode[] = [];
-  const pattern = /(\{color:([^}]+)\}([\s\S]*?)\{color\}|\[([^\]]+)\]|:([a-z0-9-]+):|\*([^*\n]+)\*|_([^_\n]+)_|&([^&\n]+)&|~([^~\n]+)~)/gi;
+  const pattern = /(\{color:([^}]+)\}([\s\S]*?)\{color\}|\[([^\]]+)\]|:([a-z0-9-]+):|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|_([^_\n]+)_|<u>([\s\S]*?)<\/u>|&([^&\n]+)&|~~([^~\n]+)~~|~([^~\n]+)~)/gi;
   let cursor = 0;
   let index = 0;
   for (const match of text.matchAll(pattern)) {
@@ -2743,30 +2751,41 @@ function renderInlineMarkdown(text: string, selected = false, linksActive = fals
     if (match[2] && match[3]) nodes.push(<span key={key} style={{ color: match[2] }}>{match[3]}</span>);
     else if (match[4]) {
       const linkKey = `text:${linkKeyFromLabel(match[4], "link")}`;
-      nodes.push(
-        <span
-          key={key}
-          className="mock-link"
-          data-link-key={linkKey}
-          onPointerDown={(event) => {
-            if (linksActive && selected && onLinkClick) event.stopPropagation();
-          }}
-        >
-          {match[4]}
-        </span>,
-      );
+      if (links) {
+        nodes.push(
+          <span
+            key={key}
+            className="mock-link"
+            data-link-key={linkKey}
+            onPointerDown={(event) => {
+              if (linksActive && selected && onLinkClick) event.stopPropagation();
+            }}
+          >
+            {match[4]}
+          </span>,
+        );
+      } else {
+        nodes.push(match[0]);
+      }
     }
     else if (match[5]) {
       const Icon = getLucideIcon(iconNameFromMarkdown(match[5]));
       nodes.push(<Icon key={key} className="inline-markdown-icon" size="1em" />);
-    } else if (match[6]) nodes.push(<em key={key}>{match[6]}</em>);
+    } else if (match[6]) nodes.push(<strong key={key}>{match[6]}</strong>);
     else if (match[7]) nodes.push(<em key={key}>{match[7]}</em>);
-    else if (match[8]) nodes.push(<u key={key}>{match[8]}</u>);
-    else if (match[9]) nodes.push(<s key={key}>{match[9]}</s>);
+    else if (match[8]) nodes.push(<em key={key}>{match[8]}</em>);
+    else if (match[9]) nodes.push(<u key={key}>{match[9]}</u>);
+    else if (match[10]) nodes.push(<u key={key}>{match[10]}</u>);
+    else if (match[11]) nodes.push(<s key={key}>{match[11]}</s>);
+    else if (match[12]) nodes.push(<s key={key}>{match[12]}</s>);
     cursor = match.index + match[0].length;
   }
   if (cursor < text.length) nodes.push(text.slice(cursor));
   return nodes;
+}
+
+function renderInlineFormatting(text: string): React.ReactNode[] {
+  return renderInlineMarkdown(text, { links: false });
 }
 
 function extractMarkdownLinks(text: string) {
@@ -2798,7 +2817,7 @@ function NodeContent({
   if (["chartBar", "chartColumn", "chartLine", "chartPie", "hScrollBar", "vScrollBar", "hSlider", "vSlider", "volumeSlider"].includes(node.kind)) return <ChartVisual node={node} />;
   if (["arrow", "hRule", "vRule", "hSplitter", "vSplitter", "redX", "scratchOut", "squigglyLine", "hCurlyBrace", "vCurlyBrace", "shape"].includes(node.kind)) return <MarkupVisual node={node} />;
   if (["icon", "iconText", "image", "webcam", "videoPlayer", "coverFlow", "smartphone", "iphone", "ipad", "iosKeyboard", "iosMenu", "iosPicker"].includes(node.kind)) return <MediaVisual node={node} />;
-  if (node.kind === "stickyNote") return <div className="editable-node-text">{node.text}</div>;
+  if (node.kind === "stickyNote") return <div className="editable-node-text">{renderInlineFormatting(node.text ?? "")}</div>;
   return null;
 }
 
@@ -2806,7 +2825,7 @@ function ButtonVisual({ node }: { node: CanvasNode }) {
   const className = `button-node visual-button visual-button-${node.kind}`;
   return (
     <div className={className} data-link-key="whole">
-      <span>{node.text}</span>
+      <span>{renderInlineFormatting(node.text ?? "")}</span>
     </div>
   );
 }
@@ -2838,13 +2857,13 @@ function TextVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
       <div className={textClassName}>
         {text.split("\n").map((line, index) => (
           <span key={`${line}-${index}`} className="markdown-line">
-            {renderInlineMarkdown(line, selected, linksActive, onLinkClick)}
+            {renderInlineMarkdown(line, { selected, linksActive, onLinkClick })}
           </span>
         ))}
       </div>
     );
   }
-  return <div className={textClassName} data-link-key="whole">{text}</div>;
+  return <div className={textClassName} data-link-key="whole">{renderInlineMarkdown(text, { selected, linksActive, onLinkClick })}</div>;
 }
 
 function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedOptionIndex?: number | null }) {
@@ -2852,7 +2871,7 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
     return (
       <label className="checkbox-node">
         <span className={node.checked ? "mock-checkbox is-checked" : "mock-checkbox"} />
-        <span>{node.text}</span>
+        <span>{renderInlineFormatting(node.text ?? "")}</span>
       </label>
     );
   }
@@ -2860,7 +2879,7 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
     return (
       <label className="radio-node">
         <span className={node.checked ? "radio-dot is-checked" : "radio-dot"} />
-        <span>{node.text}</span>
+        <span>{renderInlineFormatting(node.text ?? "")}</span>
       </label>
     );
   }
@@ -2875,7 +2894,7 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
               {node.kind === "checkboxList" && checkboxRow.kind === "checkbox" ? (
                 <span className={`mock-checkbox${checkboxRow.checked ? " is-checked" : ""}${checkboxRow.indeterminate ? " is-indeterminate" : ""}`} />
               ) : null}
-              <span>{checkboxRow.text}</span>
+              <span>{renderInlineFormatting(checkboxRow.text)}</span>
             </div>
           );
         })}
@@ -2886,18 +2905,18 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
     const selectedOption = typeof selectedOptionIndex === "number" ? nodeOptions(node)[selectedOptionIndex] : null;
     return (
       <div className="dropdown-node">
-        <span>{selectedOption ?? node.text}</span>
+        <span>{renderInlineFormatting(selectedOption ?? node.text ?? "")}</span>
         <ChevronDown size={16} />
       </div>
     );
   }
-  if (node.kind === "textbox" || node.kind === "textInput") return <div className="textbox-node">{node.text || node.placeholder}</div>;
-  if (node.kind === "textArea") return <div className="textarea-node">{node.text}</div>;
+  if (node.kind === "textbox" || node.kind === "textInput") return <div className="textbox-node">{renderInlineFormatting(node.text || node.placeholder || "")}</div>;
+  if (node.kind === "textArea") return <div className="textarea-node">{renderInlineFormatting(node.text ?? "")}</div>;
   if (node.kind === "searchBox" || node.kind === "searchBoxVoice") {
     return (
       <div className="search-node">
         <Search size={14} />
-        <span>{node.text || node.placeholder}</span>
+        <span>{renderInlineFormatting(node.text || node.placeholder || "")}</span>
         {node.kind === "searchBoxVoice" ? <span className="mic-dot" /> : null}
       </div>
     );
@@ -2946,23 +2965,23 @@ function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: 
     const activeIndex = items.length ? clamp(node.activeIndex ?? 0, 0, items.length - 1) : -1;
     return <Segmented items={items} activeIndex={activeIndex} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   }
-  if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{item}</LinkedVisualItem>)}</div>;
+  if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
   if (node.kind === "linkBar" || node.kind === "breadcrumbs") {
     return (
       <div className={`linkbar-node ${node.kind}`}>
         {nodeOptions(node).map((item, index) => (
           <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>
-            {node.kind === "breadcrumbs" ? <span className="breadcrumb-label">{item}</span> : item}
+            {node.kind === "breadcrumbs" ? <span className="breadcrumb-label">{renderInlineFormatting(item)}</span> : renderInlineFormatting(item)}
           </LinkedVisualItem>
         ))}
       </div>
     );
   }
-  if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
-  if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
-  if (node.kind === "appBar") return <div className="app-bar-node"><span>{node.text}</span><small>▾</small></div>;
+  if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
+  if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
+  if (node.kind === "appBar") return <div className="app-bar-node"><span>{renderInlineFormatting(node.text ?? "")}</span><small>▾</small></div>;
   if (node.kind === "playback") return <div className="playback-node"><span>◀◀</span><span>▶</span><span>▶▶</span></div>;
-  if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{item}</LinkedVisualItem>)}</div>;
+  if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
   return null;
 }
 
@@ -2983,7 +3002,7 @@ function TabsVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
             onLinkClick={onLinkClick}
             className={`tabs-tab${index === activeIndex ? " is-active" : ""}`}
           >
-            {item}
+            {renderInlineFormatting(item)}
           </LinkedVisualItem>
         ))}
       </div>
@@ -2995,21 +3014,21 @@ function TabsVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
 }
 
 function ContainerVisual({ node }: { node: CanvasNode }) {
-  if (node.kind === "accordion") return <div className="accordion-node">{nodeOptions(node).map((item, index) => <span key={item} className={index === 0 ? "is-open" : ""}>{item}</span>)}</div>;
-  if (node.kind === "alertBox") return <div className="alert-node"><strong>Alert</strong><p>{node.text}</p><div>{nodeOptions(node, ["No", "Yes"]).map((item) => <span key={item}>{item}</span>)}</div></div>;
+  if (node.kind === "accordion") return <div className="accordion-node">{nodeOptions(node).map((item, index) => <span key={item} className={index === 0 ? "is-open" : ""}>{renderInlineFormatting(item)}</span>)}</div>;
+  if (node.kind === "alertBox") return <div className="alert-node"><strong>Alert</strong><p>{renderInlineFormatting(node.text ?? "")}</p><div>{nodeOptions(node, ["No", "Yes"]).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div></div>;
   if (node.kind === "browser" || node.kind === "window") return <ChromeFrame node={node} />;
   if (node.kind === "modalScreen") return <div className="modal-screen-node" />;
-  if (node.kind === "fieldSet") return <fieldset className="fieldset-node"><legend>{node.text}</legend></fieldset>;
-  if (node.kind === "popover") return <div className="popover-node"><span />{node.text}</div>;
-  if (node.kind === "tooltip") return <div className="tooltip-node">{node.text}</div>;
-  if (node.kind === "callout") return <div className="callout-node">{node.text}</div>;
+  if (node.kind === "fieldSet") return <fieldset className="fieldset-node"><legend>{renderInlineFormatting(node.text ?? "")}</legend></fieldset>;
+  if (node.kind === "popover") return <div className="popover-node"><span />{renderInlineFormatting(node.text ?? "")}</div>;
+  if (node.kind === "tooltip") return <div className="tooltip-node">{renderInlineFormatting(node.text ?? "")}</div>;
+  if (node.kind === "callout") return <div className="callout-node">{renderInlineFormatting(node.text ?? "")}</div>;
   return null;
 }
 
 function ChromeFrame({ node }: { node: CanvasNode }) {
   return (
     <div className="chrome-frame-node">
-      <div><span /><span /><span /><strong>{node.text}</strong></div>
+      <div><span /><span /><span /><strong>{renderInlineFormatting(node.text ?? "")}</strong></div>
       <section />
     </div>
   );
@@ -3023,7 +3042,7 @@ function DataVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
         {nodeOptions(node).map((item, index) => (
           <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>
             {node.kind === "listIcon" ? "◆ " : ""}
-            {item}
+            {renderInlineFormatting(item)}
           </LinkedVisualItem>
         ))}
       </div>
@@ -3031,11 +3050,11 @@ function DataVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   }
   if (node.kind === "dataGrid") return <DataGridVisual node={node} />;
   if (node.kind === "calendar" || node.kind === "datePicker") return <CalendarVisual node={node} />;
-  if (node.kind === "dateChooser") return <div className="date-chooser-node">{node.text}<span>▣</span></div>;
-  if (node.kind === "timePicker") return <div className="time-picker-node"><span>{node.text}</span><i /></div>;
+  if (node.kind === "dateChooser") return <div className="date-chooser-node">{renderInlineFormatting(node.text ?? "")}<span>▣</span></div>;
+  if (node.kind === "timePicker") return <div className="time-picker-node"><span>{renderInlineFormatting(node.text ?? "")}</span><i /></div>;
   if (node.kind === "siteMap") return <SiteMapVisual node={node} />;
   if (node.kind === "streetMap") return <div className="street-map-node"><span /><span /><span /></div>;
-  if (node.kind === "tagCloud") return <div className="tag-cloud-node">{(node.text ?? "").split(/\s+/).map((word, index) => <span key={`${word}-${index}`}>{word}</span>)}</div>;
+  if (node.kind === "tagCloud") return <div className="tag-cloud-node">{(node.text ?? "").split(/\s+/).map((word, index) => <span key={`${word}-${index}`}>{renderInlineFormatting(word)}</span>)}</div>;
   return null;
 }
 
@@ -3093,7 +3112,7 @@ function TreePaneVisual({ node, selected, linksActive, onLinkClick }: { node: Ca
           }}
         >
           <TreePaneIcon icon={row.icon} />
-          <span className="tree-pane-label">{row.label}</span>
+          <span className="tree-pane-label">{renderInlineFormatting(row.label)}</span>
         </span>
       ))}
     </div>
@@ -3287,12 +3306,12 @@ function DataGridCell({ cell }: { cell: string }) {
   const control = parseDataGridControl(trimmed);
   if (control) return <span className={`data-grid-control ${control.kind} ${control.state}`} />;
   const link = trimmed.match(/^\[([^\]]+)\](?:\([^)]+\))?$/);
-  if (link) return <span className="data-grid-link">{link[1].trim()}</span>;
+  if (link) return <span className="data-grid-link">{renderInlineFormatting(link[1].trim())}</span>;
   return (
     <>
       {cell.split(/\\r/g).map((part, index) => (
         <span key={`${part}-${index}`} className="data-grid-cell-line">
-          {part}
+          {renderInlineFormatting(part)}
         </span>
       ))}
     </>
@@ -3310,12 +3329,12 @@ function parseDataGridControl(cell: string): { kind: "checkbox" | "radio"; state
 }
 
 function CalendarVisual({ node }: { node: CanvasNode }) {
-  return <div className="calendar-node"><strong>{node.text}</strong>{Array.from({ length: 35 }, (_, index) => <span key={index}>{index > 4 ? index - 4 : ""}</span>)}</div>;
+  return <div className="calendar-node"><strong>{renderInlineFormatting(node.text ?? "")}</strong>{Array.from({ length: 35 }, (_, index) => <span key={index}>{index > 4 ? index - 4 : ""}</span>)}</div>;
 }
 
 function SiteMapVisual({ node }: { node: CanvasNode }) {
   const items = nodeOptions(node);
-  return <div className="site-map-node"><strong>{items[0]}</strong>{items.slice(1).map((item) => <span key={item}>{item}</span>)}</div>;
+  return <div className="site-map-node"><strong>{renderInlineFormatting(items[0] ?? "")}</strong>{items.slice(1).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div>;
 }
 
 function ChartVisual({ node }: { node: CanvasNode }) {
@@ -3334,7 +3353,7 @@ function MarkupVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "redX") return <div className="red-x-node"><span /><span /></div>;
   if (node.kind === "scratchOut") return <div className="scratch-node">{Array.from({ length: 8 }, (_, index) => <span key={index} />)}</div>;
   if (node.kind === "squigglyLine") return <div className="squiggly-line-node" />;
-  if (node.kind === "hCurlyBrace" || node.kind === "vCurlyBrace") return <div className={`curly-node ${node.kind}`}><span>{node.kind === "hCurlyBrace" ? "︷" : "}"}</span><small>{node.text}</small></div>;
+  if (node.kind === "hCurlyBrace" || node.kind === "vCurlyBrace") return <div className={`curly-node ${node.kind}`}><span>{node.kind === "hCurlyBrace" ? "︷" : "}"}</span><small>{renderInlineFormatting(node.text ?? "")}</small></div>;
   if (node.kind === "shape") return <div className="shape-node" />;
   return null;
 }
@@ -3346,7 +3365,7 @@ function MediaVisual({ node }: { node: CanvasNode }) {
   }
   if (node.kind === "iconText") {
     const Icon = getLucideIcon(node.icon);
-    return <div className="icon-text-node" data-link-key="whole"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span>{node.text}</span></div>;
+    return <div className="icon-text-node" data-link-key="whole"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span>{renderInlineFormatting(node.text ?? "")}</span></div>;
   }
   if (node.kind === "image") {
     if (node.imageDataUrl) {
@@ -3359,8 +3378,8 @@ function MediaVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "coverFlow") return <div className="coverflow-node"><span /><span /><span /></div>;
   if (node.kind === "smartphone" || node.kind === "iphone" || node.kind === "ipad") return <DeviceVisual node={node} />;
   if (node.kind === "iosKeyboard") return <div className="ios-keyboard-node">{Array.from({ length: 30 }, (_, index) => <span key={index}>{index === 26 ? "space" : ""}</span>)}</div>;
-  if (node.kind === "iosMenu") return <div className="ios-menu-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
-  if (node.kind === "iosPicker") return <div className="ios-picker-node">{nodeOptions(node).map((item) => <span key={item}>{item}</span>)}</div>;
+  if (node.kind === "iosMenu") return <div className="ios-menu-node">{nodeOptions(node).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div>;
+  if (node.kind === "iosPicker") return <div className="ios-picker-node">{nodeOptions(node).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div>;
   return null;
 }
 
@@ -3394,7 +3413,7 @@ function Segmented({
             if (compact && linksActive && selected && onLinkClick) event.stopPropagation();
           }}
         >
-          {item}
+          {renderInlineFormatting(item)}
         </span>
       ))}
     </div>
@@ -3770,10 +3789,12 @@ function TabsProperties({
       </section>
       <label>
         Tab Labels
-        <textarea
-          value={options.join("\n")}
-          onBlur={onChangeEnd}
-          onChange={(event) => onChange("options", { options: event.target.value.split("\n") })}
+        <CommaOptionsInput
+          node={node}
+          onCommit={(nextOptions) => {
+            onChange("options", { options: nextOptions });
+            onChangeEnd();
+          }}
         />
       </label>
     </>
