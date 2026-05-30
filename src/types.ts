@@ -126,6 +126,10 @@ export type CanvasNode = {
   placeholder?: string;
   columns?: string[];
   rows?: string[];
+  imageDataUrl?: string;
+  imageMimeType?: string;
+  imageNaturalWidth?: number;
+  imageNaturalHeight?: number;
   links?: Record<string, CanvasLink>;
 };
 

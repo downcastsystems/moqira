@@ -408,6 +408,13 @@ type ProjectChangeOptions = {
   groupKey?: string;
 };
 
+type ClipboardImage = {
+  dataUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
+};
+
 type MenuActions = {
   newProject: () => void;
   newWireframe: () => void;
@@ -417,7 +424,7 @@ type MenuActions = {
   redoProjectChange: () => void;
   cutNode: () => void;
   copyNode: () => void;
-  pasteNode: () => void;
+  pasteNode: (x?: number, y?: number) => void | Promise<void>;
   deleteNode: () => void;
   duplicateNode: () => void;
   selectNone: () => void;
@@ -686,6 +693,71 @@ function createNode(kind: ComponentKind, x: number, y: number): CanvasNode {
   };
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read clipboard image."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function imageSizeFromDataUrl(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth || 320, height: image.naturalHeight || 240 });
+    image.onerror = () => resolve({ width: 320, height: 240 });
+    image.src = dataUrl;
+  });
+}
+
+async function readClipboardImage(): Promise<ClipboardImage | null> {
+  try {
+    if (!navigator.clipboard?.read) return null;
+    const clipboardItems = await navigator.clipboard.read();
+    for (const item of clipboardItems) {
+      const imageType = item.types.find((type) => type.startsWith("image/"));
+      if (!imageType) continue;
+      const blob = await item.getType(imageType);
+      const dataUrl = await blobToDataUrl(blob);
+      const size = await imageSizeFromDataUrl(dataUrl);
+      return { dataUrl, mimeType: imageType, ...size };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function imageBlobFromDataTransfer(dataTransfer: DataTransfer | null): { blob: Blob; mimeType: string } | null {
+  if (!dataTransfer) return null;
+  for (const item of Array.from(dataTransfer.items)) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (file) return { blob: file, mimeType: item.type };
+  }
+  for (const file of Array.from(dataTransfer.files)) {
+    if (file.type.startsWith("image/")) return { blob: file, mimeType: file.type };
+  }
+  return null;
+}
+
+async function clipboardImageFromBlob(blob: Blob, mimeType: string): Promise<ClipboardImage> {
+  const dataUrl = await blobToDataUrl(blob);
+  const size = await imageSizeFromDataUrl(dataUrl);
+  return { dataUrl, mimeType, ...size };
+}
+
+function imageNodeDisplaySize(image: Pick<ClipboardImage, "width" | "height">) {
+  const naturalWidth = image.width || 320;
+  const naturalHeight = image.height || 240;
+  const scale = Math.min(1, 720 / naturalWidth, 520 / naturalHeight);
+  return {
+    width: Math.max(28, Math.round(naturalWidth * scale)),
+    height: Math.max(24, Math.round(naturalHeight * scale)),
+  };
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -880,6 +952,7 @@ function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const suppressCanvasClickRef = useRef(false);
   const suppressNextLibraryClickRef = useRef(false);
+  const pendingCanvasPasteRef = useRef<number | null>(null);
   const wireframeNavigationStackRef = useRef<string[]>([]);
   const openingProjectRef = useRef(false);
   const projectDialogOpenRef = useRef(false);
@@ -889,6 +962,18 @@ function App() {
   const savedProjectSnapshotRef = useRef(dirtyProjectSnapshot(projectHistory.present));
   const project = projectHistory.present;
   const dirty = dirtyProjectSnapshot(project) !== savedProjectSnapshotRef.current;
+
+  const pastePointForSize = useCallback((width: number, height: number) => {
+    const canvas = canvasRef.current;
+    const scroller = canvas?.parentElement;
+    if (!canvas || !scroller) return { x: 120, y: 120 };
+    const x = scroller.scrollLeft + (scroller.clientWidth - width) / 2;
+    const y = scroller.scrollTop + (scroller.clientHeight - height) / 2;
+    return {
+      x: Math.max(0, Math.round(x)),
+      y: Math.max(0, Math.round(y)),
+    };
+  }, []);
 
   useEffect(() => {
     dirtyRef.current = dirty;
@@ -951,7 +1036,7 @@ function App() {
       canUndo: projectHistory.past.length > 0,
       canRedo: projectHistory.future.length > 0,
       hasSelection: selectedIds.length > 0,
-      canPaste: clipboard.length > 0,
+      canPaste: true,
       canLockSelection: selectedNodes.some((node) => !node.locked),
       hasLockedNodes: Boolean(activeWireframe?.nodes.some((node) => node.locked)),
     });
@@ -1102,6 +1187,27 @@ function App() {
       setStatus(`Added ${node.name}`);
     },
     [mutateActiveWireframe, setSelectedId],
+  );
+
+  const addImageNode = useCallback(
+    (image: ClipboardImage, x?: number, y?: number) => {
+      const size = imageNodeDisplaySize(image);
+      const point = x === undefined || y === undefined ? pastePointForSize(size.width, size.height) : { x: Math.round(x), y: Math.round(y) };
+      const node: CanvasNode = {
+        ...createNode("image", point.x, point.y),
+        width: size.width,
+        height: size.height,
+        imageDataUrl: image.dataUrl,
+        imageMimeType: image.mimeType,
+        imageNaturalWidth: image.width,
+        imageNaturalHeight: image.height,
+      };
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
+      setSelectedId(node.id);
+      setStatus("Pasted image");
+      return node;
+    },
+    [mutateActiveWireframe, pastePointForSize, setSelectedId],
   );
 
   const updateNode = useCallback(
@@ -1288,8 +1394,16 @@ function App() {
   );
 
   const pasteNode = useCallback(
-    (x?: number, y?: number) => {
-      if (!clipboard.length) return;
+    async (x?: number, y?: number) => {
+      const image = await readClipboardImage();
+      if (image) {
+        addImageNode(image, x, y);
+        return;
+      }
+      if (!clipboard.length) {
+        setStatus("Clipboard is empty");
+        return;
+      }
       const minX = Math.min(...clipboard.map((node) => node.x));
       const minY = Math.min(...clipboard.map((node) => node.y));
       const offsetX = x === undefined ? 24 : Math.round(x - minX);
@@ -1305,8 +1419,23 @@ function App() {
       selectMany(nodes.map((node) => node.id));
       setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
     },
-    [clipboard, mutateActiveWireframe, selectMany],
+    [addImageNode, clipboard, mutateActiveWireframe, selectMany],
   );
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (interactiveMode) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select")) return;
+      const imageBlob = imageBlobFromDataTransfer(event.clipboardData);
+      if (!imageBlob) return;
+      event.preventDefault();
+      pendingCanvasPasteRef.current = null;
+      void clipboardImageFromBlob(imageBlob.blob, imageBlob.mimeType).then((image) => addImageNode(image));
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [addImageNode, interactiveMode]);
 
   const layerNode = useCallback(
     (id: string | null, action: "front" | "back" | "forward" | "backward") => {
@@ -1596,7 +1725,7 @@ function App() {
       if (!runEditableClipboardAction("copy", true)) menuActionsRef.current.copyNode();
     });
     addMenuListener("menu-paste-node", () => {
-      if (!runEditableClipboardAction("paste")) menuActionsRef.current.pasteNode();
+      if (!runEditableClipboardAction("paste")) void menuActionsRef.current.pasteNode();
     });
     addMenuListener("menu-delete-node", () => menuActionsRef.current.deleteNode());
     addMenuListener("menu-duplicate-node", () => menuActionsRef.current.duplicateNode());
@@ -1794,9 +1923,14 @@ function App() {
         return;
       }
       if (modifier && event.key.toLowerCase() === "v" && !isEditingText) {
-        event.preventDefault();
         if (runEditableClipboardAction("paste")) return;
-        pasteNode();
+        const pasteToken = Date.now();
+        pendingCanvasPasteRef.current = pasteToken;
+        window.setTimeout(() => {
+          if (pendingCanvasPasteRef.current !== pasteToken) return;
+          pendingCanvasPasteRef.current = null;
+          void pasteNode();
+        }, 0);
         return;
       }
       if (modifier && event.key.toLowerCase() === "d" && !isEditingText) {
@@ -2362,7 +2496,7 @@ function App() {
         <ContextMenu
           state={contextMenu}
           targetName={contextTargetName}
-          canPaste={clipboard.length > 0}
+          canPaste={true}
           onClose={() => setContextMenu(null)}
           onSelect={(id) => {
             setSelectedId(id);
@@ -3214,7 +3348,12 @@ function MediaVisual({ node }: { node: CanvasNode }) {
     const Icon = getLucideIcon(node.icon);
     return <div className="icon-text-node" data-link-key="whole"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span>{node.text}</span></div>;
   }
-  if (node.kind === "image") return <div className="image-node"><span /><span /></div>;
+  if (node.kind === "image") {
+    if (node.imageDataUrl) {
+      return <img className="image-node image-node-bitmap" src={node.imageDataUrl} alt={node.name || "Image"} draggable={false} />;
+    }
+    return <div className="image-node"><span /><span /></div>;
+  }
   if (node.kind === "webcam") return <div className="webcam-node"><span /><i /></div>;
   if (node.kind === "videoPlayer") return <div className="video-node"><section /><footer><span /><b /></footer></div>;
   if (node.kind === "coverFlow") return <div className="coverflow-node"><span /><span /><span /></div>;

@@ -1962,6 +1962,14 @@ button:disabled {
   position: relative;
 }
 
+.image-node-bitmap {
+  display: block;
+  object-fit: contain;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
 .image-node span {
   position: absolute;
   top: 50%;
