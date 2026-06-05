@@ -1008,6 +1008,7 @@ function App() {
   const activeWireframeShowGrid = wireframeShowGrid(activeWireframe);
   const visibleComponentLibrary = useMemo(() => {
     const definitions = componentLibrary.filter((definition) => activeComponentCategory === "All" || componentCategoryNames(definition).includes(activeComponentCategory));
+    if (activeComponentCategory === "All") return [...definitions].sort((a, b) => a.label.localeCompare(b.label));
     if (activeComponentCategory !== "Common") return definitions;
     return [...definitions].sort((a, b) => {
       const aRank = commonComponentRank.get(a.kind) ?? Number.MAX_SAFE_INTEGER;
