@@ -1230,6 +1230,11 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
   box-shadow: 4px 5px 0 rgba(15, 23, 42, 0.16);
 }
 
+.node-stickyNote .editable-node-text {
+  display: block;
+  line-height: 1.2;
+}
+
 .node-text {
   align-items: center;
 }
