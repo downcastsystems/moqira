@@ -193,7 +193,18 @@ const componentLibrary: ComponentDefinition[] = [
     activeIndex: 0,
     showScrollbar: false,
   }),
-  component("alertBox", "Alert Box", "Containers", "MessageSquareWarning", 220, 115, { text: "Alert text goes here", options: ["No", "Yes"] }),
+  component("alertBox", "Alert Box", "Containers", "MessageSquareWarning", 240, 140, {
+    text: "Alert\nAlert text goes here",
+    options: ["No", "Yes"],
+    showBorder: true,
+    textAlign: "center",
+  }),
+  component("alertBoxAndroid", "Alert Box (Android)", "Containers", "MessageSquareWarning", 260, 145, {
+    text: "Alert\nAlert text goes here",
+    options: ["No", "Yes"],
+    showBorder: true,
+    textAlign: "left",
+  }),
   component("browser", "Browser", ["Common", "Containers"], "PanelTop", 220, 160, { text: "http://example.com" }),
   component("window", "Window", ["Common", "Containers"], "PanelTop", 220, 160, { text: "Window Title" }),
   component("modalScreen", "Modal Screen", "Containers", "PanelTop", 220, 140, { fill: "#777777" }),
@@ -474,7 +485,7 @@ function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft:
 }
 
 function usesCommaSeparatedOptions(node: CanvasNode) {
-  return ["breadcrumbs", "buttonBar", "linkBar", "menuBar", "tabs", "tabBar"].includes(node.kind);
+  return ["alertBox", "alertBoxAndroid", "breadcrumbs", "buttonBar", "linkBar", "menuBar", "tabs", "tabBar"].includes(node.kind);
 }
 
 function optionsEditDraft(node: CanvasNode) {
@@ -2763,6 +2774,13 @@ function accordionOpenIndex(node: CanvasNode, selectedOptionIndex?: number | nul
   return matchingSection?.optionIndex ?? sections[0].optionIndex;
 }
 
+function alertTextParts(node: CanvasNode) {
+  const lines = (node.text ?? "Alert\nAlert text goes here").split("\n");
+  const title = lines[0]?.trim() || "Alert";
+  const message = lines.slice(1).join("\n").trim() || "Alert text goes here";
+  return { title, message };
+}
+
 function iconNameFromMarkdown(name: string) {
   return name
     .split("-")
@@ -2852,7 +2870,7 @@ function NodeContent({
     return <FormVisual node={node} selectedOptionIndex={selectedOptionIndex} />;
   }
   if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
-  if (["accordion", "alertBox", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={selectedOptionIndex} />;
+  if (["accordion", "alertBox", "alertBoxAndroid", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={selectedOptionIndex} />;
   if (["list", "listIcon", "treePane", "dataGrid", "calendar", "dateChooser", "datePicker", "timePicker", "siteMap", "streetMap", "tagCloud"].includes(node.kind)) return <DataVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["chartBar", "chartColumn", "chartLine", "chartPie", "hScrollBar", "vScrollBar", "hSlider", "vSlider", "volumeSlider"].includes(node.kind)) return <ChartVisual node={node} />;
   if (["arrow", "hRule", "vRule", "hSplitter", "vSplitter", "redX", "scratchOut", "squigglyLine", "hCurlyBrace", "vCurlyBrace", "shape"].includes(node.kind)) return <MarkupVisual node={node} />;
@@ -3067,7 +3085,7 @@ function ContainerVisual({
   selectedOptionIndex?: number | null;
 }) {
   if (node.kind === "accordion") return <AccordionVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={selectedOptionIndex} />;
-  if (node.kind === "alertBox") return <div className="alert-node"><strong>Alert</strong><p>{renderInlineFormatting(node.text ?? "")}</p><div>{nodeOptions(node, ["No", "Yes"]).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div></div>;
+  if (node.kind === "alertBox" || node.kind === "alertBoxAndroid") return <AlertVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (node.kind === "browser" || node.kind === "window") return <ChromeFrame node={node} />;
   if (node.kind === "modalScreen") return <div className="modal-screen-node" />;
   if (node.kind === "fieldSet") return <fieldset className="fieldset-node"><legend>{renderInlineFormatting(node.text ?? "")}</legend></fieldset>;
@@ -3136,6 +3154,53 @@ function AccordionVisual({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function AlertVisual({
+  node,
+  selected,
+  linksActive,
+  onLinkClick,
+}: {
+  node: CanvasNode;
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+}) {
+  const { title, message } = alertTextParts(node);
+  const buttons = nodeOptions(node, ["No", "Yes"]);
+  const align = node.textAlign ?? (node.kind === "alertBox" ? "center" : "left");
+  const className = [
+    "alert-node",
+    node.kind === "alertBoxAndroid" ? "alert-android" : "alert-standard",
+    node.showBorder === false ? "no-border" : "",
+    `text-align-${align}`,
+    node.textBold ? "alert-text-bold" : "",
+    node.textItalic ? "alert-text-italic" : "",
+    node.textUnderline ? "alert-text-underline" : "",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <div className={className}>
+      <div className="alert-content">
+        <strong>{renderInlineFormatting(title)}</strong>
+        <p>{renderInlineFormatting(message)}</p>
+      </div>
+      <div className="alert-buttons">
+        {buttons.map((item, index) => (
+          <span
+            key={`${item}-${index}`}
+            data-link-key={linkKeyForIndex("item", item, index)}
+            onPointerDown={(event) => {
+              if (linksActive && selected && onLinkClick) event.stopPropagation();
+            }}
+          >
+            {renderInlineFormatting(item || `Button ${index + 1}`)}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3712,6 +3777,9 @@ function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
   if (node.kind === "buttonBar") {
     return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: `Item ${index + 1}` }));
   }
+  if (node.kind === "alertBox" || node.kind === "alertBoxAndroid") {
+    return nodeOptions(node, ["No", "Yes"]).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item || `Button ${index + 1}` }));
+  }
   if (["accordion", "linkBar", "breadcrumbs", "menuBar", "menu", "toolbar", "vTabs", "list", "listIcon"].includes(node.kind)) {
     return nodeOptions(node).map((item, index) => {
       const label = node.kind === "accordion" ? item.replace(/^\s*-\s*/, "") : item;
@@ -3982,6 +4050,58 @@ function AccordionProperties({
   );
 }
 
+function AlertProperties({
+  node,
+  onChange,
+  onChangeEnd,
+}: {
+  node: CanvasNode;
+  onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
+  onChangeEnd: () => void;
+}) {
+  const textAlign = node.textAlign ?? (node.kind === "alertBox" ? "center" : "left");
+  const textUnderline = Boolean(node.textUnderline);
+
+  return (
+    <>
+      <section className="property-section">
+        <h3>Border</h3>
+        <label className="toggle-setting">
+          <input
+            type="checkbox"
+            checked={node.showBorder !== false}
+            onChange={(event) => onChange("showBorder", { showBorder: event.target.checked })}
+          />
+          <span>Show Border</span>
+        </label>
+      </section>
+      <section className="property-section">
+        <h3>Text</h3>
+        <div className="text-toolbar">
+          <div className="toolbar-group">
+            <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
+            <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
+            <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+          </div>
+          <div className="toolbar-group">
+            <button type="button" className={textAlign === "left" ? "is-active" : ""} title="Align left" onClick={() => onChange("textAlign", { textAlign: "left" })}><AlignLeft size={18} /></button>
+            <button type="button" className={textAlign === "center" ? "is-active" : ""} title="Align center" onClick={() => onChange("textAlign", { textAlign: "center" })}><AlignCenter size={18} /></button>
+            <button type="button" className={textAlign === "right" ? "is-active" : ""} title="Align right" onClick={() => onChange("textAlign", { textAlign: "right" })}><AlignRight size={18} /></button>
+          </div>
+          <input
+            type="number"
+            min={8}
+            max={72}
+            value={node.fontSize ?? 14}
+            onBlur={onChangeEnd}
+            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+          />
+        </div>
+      </section>
+    </>
+  );
+}
+
 function PropertiesPane({
   selectedNode,
   selectedCount,
@@ -4055,6 +4175,7 @@ function PropertiesPane({
   const textUnderline = selectedNode.textUnderline ?? selectedNode.kind === "link";
   const isTabs = isTabsNode(selectedNode);
   const isAccordion = selectedNode.kind === "accordion";
+  const isAlert = selectedNode.kind === "alertBox" || selectedNode.kind === "alertBoxAndroid";
   const isButtonBar = selectedNode.kind === "buttonBar";
   const isDataGrid = selectedNode.kind === "dataGrid";
   const linkableElements = linkableElementsForNode(selectedNode);
@@ -4184,6 +4305,8 @@ function PropertiesPane({
         <TabsProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
       ) : isAccordion ? (
         <AccordionProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
+      ) : isAlert ? (
+        <AlertProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
       ) : isTextNode ? (
         <>
           <section className="property-section">

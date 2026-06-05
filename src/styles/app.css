@@ -1474,29 +1474,129 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
 
 .alert-node {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   border: 2px solid var(--node-stroke);
-  border-radius: 9px;
+  color: var(--node-text);
   background: var(--node-fill);
-  padding: 8px;
+  font-size: var(--node-font-size);
+  overflow: hidden;
+}
+
+.alert-node.no-border {
+  border-color: transparent;
+}
+
+.alert-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+  padding: 14px 18px;
+  overflow: hidden;
+}
+
+.alert-content strong,
+.alert-content p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alert-content strong {
+  display: block;
+  margin: 0 0 10px;
+  font-size: 1.15em;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.alert-content p {
+  margin: 0;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+.alert-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 34px;
+}
+
+.alert-buttons span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-standard {
+  border-radius: 22px;
   text-align: center;
 }
 
-.alert-node p {
-  margin: 6px 0;
+.alert-standard .alert-buttons {
+  border-top: 2px solid var(--node-stroke);
 }
 
-.alert-node div {
+.alert-standard.no-border .alert-buttons {
+  border-top-color: transparent;
+}
+
+.alert-standard .alert-buttons span {
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 6px 10px;
 }
 
-.alert-node span {
-  min-width: 44px;
-  border-top: 1px solid var(--node-stroke);
-  padding-top: 3px;
-  font-size: 11px;
+.alert-standard .alert-buttons span + span {
+  border-left: 2px solid var(--node-stroke);
+}
+
+.alert-standard.no-border .alert-buttons span + span {
+  border-left-color: transparent;
+}
+
+.alert-android {
+  border-radius: 20px;
+  text-align: left;
+}
+
+.alert-android .alert-content {
+  justify-content: flex-start;
+  padding: 22px 24px 8px;
+}
+
+.alert-android .alert-content strong {
+  margin-bottom: 16px;
+}
+
+.alert-android .alert-buttons {
+  align-items: center;
+  justify-content: flex-end;
+  gap: 24px;
+  min-height: 42px;
+  padding: 0 24px 14px;
+}
+
+.alert-android .alert-buttons span {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.alert-text-bold .alert-content,
+.alert-text-bold .alert-buttons {
+  font-weight: 700;
+}
+
+.alert-text-italic .alert-content,
+.alert-text-italic .alert-buttons {
+  font-style: italic;
+}
+
+.alert-text-underline .alert-content,
+.alert-text-underline .alert-buttons {
+  text-decoration: underline;
 }
 
 .chrome-frame-node {

@@ -1,6 +1,7 @@
 export type ComponentKind =
   | "accordion"
   | "alertBox"
+  | "alertBoxAndroid"
   | "appBar"
   | "arrow"
   | "breadcrumbs"
