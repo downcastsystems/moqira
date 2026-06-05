@@ -188,7 +188,11 @@ const componentLibrary: ComponentDefinition[] = [
   component("playback", "Playback", "Navigation", "CirclePlay", 120, 40, { options: ["rew", "play", "ff"] }),
   component("toolbar", "Toolbar", "Navigation", "Rows3", 230, 32, { options: ["B", "I", "U", "link", "align"] }),
 
-  component("accordion", "Accordion", "Containers", "PanelTop", 170, 130, { options: ["Item One", "Item Two", "Item Three", "Item Four"] }),
+  component("accordion", "Accordion", "Containers", "PanelTop", 150, 186, {
+    options: ["Item 1", "Item 2", "- Sub-Item 2.1", "- Sub-Item 2.2", "Item 3"],
+    activeIndex: 0,
+    showScrollbar: false,
+  }),
   component("alertBox", "Alert Box", "Containers", "MessageSquareWarning", 220, 115, { text: "Alert text goes here", options: ["No", "Yes"] }),
   component("browser", "Browser", ["Common", "Containers"], "PanelTop", 220, 160, { text: "http://example.com" }),
   component("window", "Window", ["Common", "Containers"], "PanelTop", 220, 160, { text: "Window Title" }),
@@ -2647,6 +2651,13 @@ function CanvasItem({
       onClick={(event) => {
         event.stopPropagation();
         const linkTarget = (event.target as HTMLElement).closest<HTMLElement>("[data-link-key]");
+        const accordionTarget = (event.target as HTMLElement).closest<HTMLElement>("[data-accordion-index]");
+        if (editingLocked && node.kind === "accordion" && accordionTarget) {
+          const nextIndex = Number(accordionTarget.dataset.accordionIndex);
+          if (Number.isFinite(nextIndex)) onInteractiveOptionSelect(nextIndex);
+          if (linksActive && linkTarget) onLinkClick(linkTarget.dataset.linkKey ?? "whole");
+          return;
+        }
         if (linksActive && linkTarget) {
           onLinkClick(linkTarget.dataset.linkKey ?? "whole");
           return;
@@ -2709,6 +2720,13 @@ type CheckboxListRow =
   | { kind: "checkbox"; checked: boolean; indeterminate: boolean; disabled: boolean; text: string }
   | { kind: "text"; text: string };
 
+type AccordionSection = {
+  title: string;
+  optionIndex: number;
+  children: { text: string; optionIndex: number; raw: string }[];
+  raw: string;
+};
+
 function parseCheckboxListRow(row: string): CheckboxListRow {
   const disabledMatch = row.match(/^-\[( |x|X|-)\]\s*(.*)-$/);
   const enabledMatch = row.match(/^\[( |x|X|-)\]\s*(.*)$/);
@@ -2722,6 +2740,27 @@ function parseCheckboxListRow(row: string): CheckboxListRow {
     disabled: Boolean(disabledMatch),
     text: match[2],
   };
+}
+
+function parseAccordionSections(node: CanvasNode): AccordionSection[] {
+  const sections: AccordionSection[] = [];
+  nodeOptions(node, ["Item One", "Item Two", "Item Three", "Item Four"]).forEach((raw, optionIndex) => {
+    const childMatch = raw.match(/^\s*-\s*(.*)$/);
+    if (childMatch && sections.length) {
+      sections[sections.length - 1].children.push({ text: childMatch[1] || raw.trim(), optionIndex, raw });
+      return;
+    }
+    sections.push({ title: raw, optionIndex, children: [], raw });
+  });
+  return sections;
+}
+
+function accordionOpenIndex(node: CanvasNode, selectedOptionIndex?: number | null) {
+  const sections = parseAccordionSections(node);
+  if (!sections.length) return -1;
+  const requestedIndex = typeof selectedOptionIndex === "number" ? selectedOptionIndex : node.activeIndex;
+  const matchingSection = sections.find((section) => section.optionIndex === requestedIndex);
+  return matchingSection?.optionIndex ?? sections[0].optionIndex;
 }
 
 function iconNameFromMarkdown(name: string) {
@@ -2813,7 +2852,7 @@ function NodeContent({
     return <FormVisual node={node} selectedOptionIndex={selectedOptionIndex} />;
   }
   if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
-  if (["accordion", "alertBox", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} />;
+  if (["accordion", "alertBox", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={selectedOptionIndex} />;
   if (["list", "listIcon", "treePane", "dataGrid", "calendar", "dateChooser", "datePicker", "timePicker", "siteMap", "streetMap", "tagCloud"].includes(node.kind)) return <DataVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["chartBar", "chartColumn", "chartLine", "chartPie", "hScrollBar", "vScrollBar", "hSlider", "vSlider", "volumeSlider"].includes(node.kind)) return <ChartVisual node={node} />;
   if (["arrow", "hRule", "vRule", "hSplitter", "vSplitter", "redX", "scratchOut", "squigglyLine", "hCurlyBrace", "vCurlyBrace", "shape"].includes(node.kind)) return <MarkupVisual node={node} />;
@@ -3014,8 +3053,20 @@ function TabsVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   );
 }
 
-function ContainerVisual({ node }: { node: CanvasNode }) {
-  if (node.kind === "accordion") return <div className="accordion-node">{nodeOptions(node).map((item, index) => <span key={item} className={index === 0 ? "is-open" : ""}>{renderInlineFormatting(item)}</span>)}</div>;
+function ContainerVisual({
+  node,
+  selected,
+  linksActive,
+  onLinkClick,
+  selectedOptionIndex,
+}: {
+  node: CanvasNode;
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+  selectedOptionIndex?: number | null;
+}) {
+  if (node.kind === "accordion") return <AccordionVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={selectedOptionIndex} />;
   if (node.kind === "alertBox") return <div className="alert-node"><strong>Alert</strong><p>{renderInlineFormatting(node.text ?? "")}</p><div>{nodeOptions(node, ["No", "Yes"]).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div></div>;
   if (node.kind === "browser" || node.kind === "window") return <ChromeFrame node={node} />;
   if (node.kind === "modalScreen") return <div className="modal-screen-node" />;
@@ -3024,6 +3075,69 @@ function ContainerVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "tooltip") return <div className="tooltip-node">{renderInlineFormatting(node.text ?? "")}</div>;
   if (node.kind === "callout") return <div className="callout-node">{renderInlineFormatting(node.text ?? "")}</div>;
   return null;
+}
+
+function AccordionVisual({
+  node,
+  selected,
+  linksActive,
+  onLinkClick,
+  selectedOptionIndex,
+}: {
+  node: CanvasNode;
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+  selectedOptionIndex?: number | null;
+}) {
+  const sections = parseAccordionSections(node);
+  const openIndex = accordionOpenIndex(node, selectedOptionIndex);
+  const className = [
+    "accordion-node",
+    node.showScrollbar ? "has-scrollbar" : "",
+    node.textBold ? "accordion-text-bold" : "",
+    node.textItalic ? "accordion-text-italic" : "",
+    node.textUnderline ? "accordion-text-underline" : "",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <div className={className}>
+      {sections.map((section) => {
+        const isOpen = section.optionIndex === openIndex;
+        return (
+          <div key={`${section.raw}-${section.optionIndex}`} className={isOpen ? "accordion-section is-open" : "accordion-section"}>
+            <span
+              className="accordion-header"
+              data-accordion-index={section.optionIndex}
+              data-link-key={linkKeyForIndex("item", section.raw, section.optionIndex)}
+              onPointerDown={(event) => {
+                if (linksActive && selected && onLinkClick) event.stopPropagation();
+              }}
+            >
+              {renderInlineFormatting(section.title)}
+            </span>
+            {isOpen ? (
+              <div className="accordion-panel">
+                {section.children.map((child) => (
+                  <span
+                    key={`${child.raw}-${child.optionIndex}`}
+                    className="accordion-child"
+                    data-link-key={linkKeyForIndex("item", child.raw, child.optionIndex)}
+                    onPointerDown={(event) => {
+                      if (linksActive && selected && onLinkClick) event.stopPropagation();
+                    }}
+                  >
+                    {renderInlineFormatting(child.text)}
+                  </span>
+                ))}
+                {node.showScrollbar ? <span className="accordion-scrollbar" /> : null}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function ChromeFrame({ node }: { node: CanvasNode }) {
@@ -3598,8 +3712,11 @@ function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
   if (node.kind === "buttonBar") {
     return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: `Item ${index + 1}` }));
   }
-  if (["linkBar", "breadcrumbs", "menuBar", "menu", "toolbar", "vTabs", "list", "listIcon"].includes(node.kind)) {
-    return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item || `Item ${index + 1}` }));
+  if (["accordion", "linkBar", "breadcrumbs", "menuBar", "menu", "toolbar", "vTabs", "list", "listIcon"].includes(node.kind)) {
+    return nodeOptions(node).map((item, index) => {
+      const label = node.kind === "accordion" ? item.replace(/^\s*-\s*/, "") : item;
+      return { key: linkKeyForIndex("item", item, index), label: label || `Item ${index + 1}` };
+    });
   }
   if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link"].includes(node.kind)) {
     return [
@@ -3802,6 +3919,69 @@ function TabsProperties({
   );
 }
 
+function AccordionProperties({
+  node,
+  onChange,
+  onChangeEnd,
+}: {
+  node: CanvasNode;
+  onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
+  onChangeEnd: () => void;
+}) {
+  const sections = parseAccordionSections(node);
+  const activeIndex = accordionOpenIndex(node);
+  const textUnderline = Boolean(node.textUnderline);
+
+  return (
+    <>
+      <section className="property-section">
+        <h3>Scrollbar</h3>
+        <label className="icon-toggle-setting" title="Show scrollbar">
+          <input
+            type="checkbox"
+            checked={Boolean(node.showScrollbar)}
+            onChange={(event) => onChange("showScrollbar", { showScrollbar: event.target.checked })}
+          />
+          <span aria-hidden="true" />
+        </label>
+      </section>
+      <section className="property-section">
+        <h3>Selection</h3>
+        <select
+          value={String(activeIndex)}
+          disabled={!sections.length}
+          onChange={(event) => onChange("activeIndex", { activeIndex: Number(event.target.value) })}
+        >
+          {!sections.length ? <option value="-1">No Items</option> : null}
+          {sections.map((section) => (
+            <option key={`${section.raw}-${section.optionIndex}`} value={section.optionIndex}>
+              {section.title || `Item ${section.optionIndex + 1}`}
+            </option>
+          ))}
+        </select>
+      </section>
+      <section className="property-section">
+        <h3>Text</h3>
+        <div className="text-toolbar">
+          <div className="toolbar-group">
+            <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
+            <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
+            <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+          </div>
+          <input
+            type="number"
+            min={8}
+            max={72}
+            value={node.fontSize ?? 14}
+            onBlur={onChangeEnd}
+            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+          />
+        </div>
+      </section>
+    </>
+  );
+}
+
 function PropertiesPane({
   selectedNode,
   selectedCount,
@@ -3874,6 +4054,7 @@ function PropertiesPane({
   const textAlign = selectedNode.textAlign ?? "left";
   const textUnderline = selectedNode.textUnderline ?? selectedNode.kind === "link";
   const isTabs = isTabsNode(selectedNode);
+  const isAccordion = selectedNode.kind === "accordion";
   const isButtonBar = selectedNode.kind === "buttonBar";
   const isDataGrid = selectedNode.kind === "dataGrid";
   const linkableElements = linkableElementsForNode(selectedNode);
@@ -4001,6 +4182,8 @@ function PropertiesPane({
       ) : null}
       {isTabs ? (
         <TabsProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
+      ) : isAccordion ? (
+        <AccordionProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
       ) : isTextNode ? (
         <>
           <section className="property-section">
