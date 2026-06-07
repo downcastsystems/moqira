@@ -125,6 +125,14 @@ export type CanvasNode = {
   orientation?: "horizontal" | "vertical";
   variant?: string;
   placeholder?: string;
+  arrowLine?: "curved" | "straight";
+  arrowHeadStart?: boolean;
+  arrowHeadEnd?: boolean;
+  arrowStrokeStyle?: "solid" | "dashed" | "dotted";
+  arrowLabelPosition?: number;
+  arrowStart?: CanvasPoint;
+  arrowEnd?: CanvasPoint;
+  arrowControl?: CanvasPoint;
   columns?: string[];
   rows?: string[];
   imageDataUrl?: string;
@@ -132,6 +140,11 @@ export type CanvasNode = {
   imageNaturalWidth?: number;
   imageNaturalHeight?: number;
   links?: Record<string, CanvasLink>;
+};
+
+export type CanvasPoint = {
+  x: number;
+  y: number;
 };
 
 export type CanvasLink =

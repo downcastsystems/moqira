@@ -5,10 +5,13 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  ArrowLeft,
+  ArrowRight,
   Bold,
   BringToFront,
   CheckSquare,
   ChevronDown,
+  CornerUpRight,
   Clipboard,
   Italic,
   PanelBottom,
@@ -36,7 +39,7 @@ import type { LucideIcon } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTauri, openProjectFile, readLastProjectPath, saveProjectFile, syncEditMenuState, syncRecentProjects, writeLastProjectPath } from "./lib/mockupsApi";
-import type { CanvasLink, CanvasNode, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
+import type { CanvasLink, CanvasNode, CanvasPoint, ComponentDefinition, ComponentKind, MockupProject, Wireframe } from "./types";
 
 const leftPaneCollapsedKey = "moqira-left-pane-collapsed";
 const rightPaneCollapsedKey = "moqira-right-pane-collapsed";
@@ -184,7 +187,12 @@ const componentLibrary: ComponentDefinition[] = [
   component("breadcrumbs", "Breadcrumbs", "Navigation", "ChevronRight", 240, 34, { options: ["Home", "Products", "Bags", "Feature"] }),
   component("menuBar", "Menu Bar", ["Common", "Navigation"], "Menu", 250, 34, { options: ["File", "Edit", "View", "Help"] }),
   component("menu", "Menu", "Navigation", "PanelTopClose", 120, 142, { options: ["Open", "Open Recent", "Close", "Save", "Toggle Item"] }),
-  component("appBar", "App Bar", "Navigation", "PanelTop", 180, 32, { text: "Heading" }),
+  component("appBar", "App Bar", "Navigation", "PanelTop", 320, 44, {
+    options: ["Menu", "ChevronDown", "MoreVertical"],
+    fill: "#d9d9d9",
+    textColor: "#111827",
+    fontSize: 16,
+  }),
   component("playback", "Playback", "Navigation", "CirclePlay", 120, 40, { options: ["rew", "play", "ff"] }),
   component("toolbar", "Toolbar", "Navigation", "Rows3", 230, 32, { options: ["B", "I", "U", "link", "align"] }),
 
@@ -261,7 +269,18 @@ const componentLibrary: ComponentDefinition[] = [
   component("vSlider", "V.Slider", "Charts", "SlidersVertical", 36, 170, { orientation: "vertical", value: 55 }),
   component("volumeSlider", "Volume Slider", "Charts", "Volume2", 180, 46, { value: 55 }),
 
-  component("arrow", "Arrow", "Markup", "MoveUpRight", 140, 80),
+  component("arrow", "Arrow", "Markup", "MoveUpRight", 140, 80, {
+    text: "",
+    stroke: "#000000",
+    textColor: "#111827",
+    arrowLine: "curved",
+    arrowHeadStart: false,
+    arrowHeadEnd: true,
+    arrowStrokeStyle: "solid",
+    arrowLabelPosition: 50,
+    arrowStart: { x: 0.12, y: 0.2 },
+    arrowEnd: { x: 0.88, y: 0.8 },
+  }),
   component("hRule", "H.Rule", "Markup", "Minus", 150, 24, { orientation: "horizontal" }),
   component("vRule", "V.Rule", "Markup", "Minus", 24, 150, { orientation: "vertical" }),
   component("hSplitter", "H.Splitter", "Markup", "GripHorizontal", 180, 28),
@@ -383,6 +402,14 @@ type SelectionRectState = {
   moved: boolean;
 };
 
+type ArrowDrawState = {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  moved: boolean;
+};
+
 type InteractiveSelectState = {
   nodeId: string;
   open: boolean;
@@ -485,7 +512,7 @@ function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft:
 }
 
 function usesCommaSeparatedOptions(node: CanvasNode) {
-  return ["alertBox", "alertBoxAndroid", "breadcrumbs", "buttonBar", "linkBar", "menuBar", "tabs", "tabBar"].includes(node.kind);
+  return ["alertBox", "alertBoxAndroid", "appBar", "breadcrumbs", "buttonBar", "linkBar", "menuBar", "tabs", "tabBar"].includes(node.kind);
 }
 
 function optionsEditDraft(node: CanvasNode) {
@@ -708,6 +735,33 @@ function createNode(kind: ComponentKind, x: number, y: number): CanvasNode {
   };
 }
 
+function createArrowNodeFromPoints(start: CanvasPoint, end: CanvasPoint): CanvasNode {
+  const padding = 18;
+  const minX = Math.min(start.x, end.x);
+  const minY = Math.min(start.y, end.y);
+  const rawWidth = Math.abs(end.x - start.x);
+  const rawHeight = Math.abs(end.y - start.y);
+  const x = Math.max(0, Math.round(minX - padding));
+  const y = Math.max(0, Math.round(minY - padding));
+  const width = Math.max(36, Math.round(rawWidth + padding * 2));
+  const height = Math.max(36, Math.round(rawHeight + padding * 2));
+  const pointInNode = (point: CanvasPoint) => ({
+    x: clamp((point.x - x) / width, 0, 1),
+    y: clamp((point.y - y) / height, 0, 1),
+  });
+
+  return {
+    ...createNode("arrow", x, y),
+    width,
+    height,
+    arrowStart: pointInNode(start),
+    arrowEnd: pointInNode(end),
+    arrowLine: "curved",
+    arrowHeadStart: false,
+    arrowHeadEnd: true,
+  };
+}
+
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -925,6 +979,7 @@ function App() {
   const [renameWireframe, setRenameWireframe] = useState<RenameWireframeState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [selectionRect, setSelectionRect] = useState<SelectionRectState | null>(null);
+  const [arrowDraw, setArrowDraw] = useState<ArrowDrawState | null>(null);
   const [snapGuides, setSnapGuides] = useState<number[]>([]);
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
@@ -965,6 +1020,7 @@ function App() {
     setInteractiveSelect(null);
   }, [projectHistory.present.activeWireframeId]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const arrowKeyDownRef = useRef(false);
   const suppressCanvasClickRef = useRef(false);
   const suppressNextLibraryClickRef = useRef(false);
   const pendingCanvasPasteRef = useRef<number | null>(null);
@@ -1201,6 +1257,17 @@ function App() {
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
       setSelectedId(node.id);
       setStatus(`Added ${node.name}`);
+    },
+    [mutateActiveWireframe, setSelectedId],
+  );
+
+  const addArrowNodeFromPoints = useCallback(
+    (start: CanvasPoint, end: CanvasPoint) => {
+      const node = createArrowNodeFromPoints(start, end);
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
+      setSelectedId(node.id);
+      setStatus("Drew arrow");
+      return node;
     },
     [mutateActiveWireframe, setSelectedId],
   );
@@ -1885,6 +1952,36 @@ function App() {
   }, [activeWireframe?.nodes, selectMany, selectOnly, selectedIds, selectionRect]);
 
   useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      if (!arrowDraw) return;
+      event.preventDefault();
+      const point = canvasPointFromEvent(event);
+      const moved = arrowDraw.moved || Math.hypot(point.x - arrowDraw.startX, point.y - arrowDraw.startY) > 4;
+      setArrowDraw({ ...arrowDraw, currentX: point.x, currentY: point.y, moved });
+    };
+    const onPointerUp = () => {
+      if (!arrowDraw) return;
+      if (arrowDraw.moved && Math.hypot(arrowDraw.currentX - arrowDraw.startX, arrowDraw.currentY - arrowDraw.startY) > 8) {
+        addArrowNodeFromPoints(
+          { x: arrowDraw.startX, y: arrowDraw.startY },
+          { x: arrowDraw.currentX, y: arrowDraw.currentY },
+        );
+        suppressCanvasClickRef.current = true;
+        window.setTimeout(() => {
+          suppressCanvasClickRef.current = false;
+        }, 0);
+      }
+      setArrowDraw(null);
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [addArrowNodeFromPoints, arrowDraw]);
+
+  useEffect(() => {
     if (!interactiveMode || !interactiveSelect?.open) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
@@ -1924,6 +2021,11 @@ function App() {
           }
           setInteractiveMode(false);
         }
+        return;
+      }
+      if (!modifier && event.key.toLowerCase() === "a" && !isEditingText) {
+        arrowKeyDownRef.current = true;
+        if (!event.repeat) setStatus("Hold A and drag on the canvas to draw an arrow");
         return;
       }
       if (modifier && event.key.toLowerCase() === "c" && !isEditingText) {
@@ -2034,6 +2136,15 @@ function App() {
     undoProjectChange,
     unlockAllNodes,
   ]);
+
+  useEffect(() => {
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "a") return;
+      arrowKeyDownRef.current = false;
+    };
+    window.addEventListener("keyup", onKeyUp);
+    return () => window.removeEventListener("keyup", onKeyUp);
+  }, []);
 
   function addWireframe() {
     const id = createId("wireframe");
@@ -2384,6 +2495,18 @@ function App() {
                 const point = canvasPointFromEvent(event);
                 setContextMenu(null);
                 closeTextEditor(true);
+                if (arrowKeyDownRef.current) {
+                  setSelectedId(null);
+                  setSelectionRect(null);
+                  setArrowDraw({
+                    startX: point.x,
+                    startY: point.y,
+                    currentX: point.x,
+                    currentY: point.y,
+                    moved: false,
+                  });
+                  return;
+                }
                 setSelectionRect({
                   startX: point.x,
                   startY: point.y,
@@ -2418,6 +2541,9 @@ function App() {
                     height: rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY).height,
                   }}
                 />
+              ) : null}
+              {arrowDraw?.moved ? (
+                <ArrowDrawPreview state={arrowDraw} />
               ) : null}
               {activeWireframe?.nodes.map((node) => (
                 <CanvasItem
@@ -2628,6 +2754,7 @@ function CanvasItem({
   onMoveStart: (event: React.PointerEvent) => void;
   onResizeStart: (event: React.PointerEvent, handle: ResizeHandle) => void;
 }) {
+  const isArrow = node.kind === "arrow";
   const style = {
     left: node.x,
     top: node.y,
@@ -2693,13 +2820,15 @@ function CanvasItem({
       {interactiveSelect?.open && (node.kind === "dropdown" || node.kind === "comboBox") ? (
         <div className="interactive-select-menu" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
           {nodeOptions(node, ["First", "Second", "Third"]).map((option, index) => (
-            <button key={`${option}-${index}`} type="button" className={index === interactiveSelect.selectedIndex ? "is-selected" : ""} onClick={() => onInteractiveOptionSelect(index)}>
+            <button key={`${option}-${index}`} type="button" className={textFormatClassName(node, index === interactiveSelect.selectedIndex ? "is-selected" : "")} onClick={() => onInteractiveOptionSelect(index)}>
               {renderInlineFormatting(option)}
             </button>
           ))}
         </div>
       ) : null}
-      {primarySelected && !editingLocked ? (
+      {primarySelected && !editingLocked && isArrow ? (
+        <ArrowSelectionHandles node={node} onResizeStart={onResizeStart} />
+      ) : primarySelected && !editingLocked ? (
         <>
           {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]).map((handle) => (
             <span
@@ -2715,6 +2844,57 @@ function CanvasItem({
         </>
       ) : null}
     </div>
+  );
+}
+
+function ArrowDrawPreview({ state }: { state: ArrowDrawState }) {
+  const node = createArrowNodeFromPoints(
+    { x: state.startX, y: state.startY },
+    { x: state.currentX, y: state.currentY },
+  );
+  return (
+    <div
+      className="arrow-draw-preview"
+      style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
+    >
+      <ArrowVisual node={node} />
+    </div>
+  );
+}
+
+function arrowResizeHandleForPoint(point: CanvasPoint): ResizeHandle {
+  const vertical = point.y < 0.34 ? "n" : point.y > 0.66 ? "s" : "";
+  const horizontal = point.x < 0.34 ? "w" : point.x > 0.66 ? "e" : "";
+  const handle = `${vertical}${horizontal}` as ResizeHandle | "";
+  return handle || "se";
+}
+
+function ArrowSelectionHandles({ node, onResizeStart }: { node: CanvasNode; onResizeStart: (event: React.PointerEvent, handle: ResizeHandle) => void }) {
+  const start = normalizedArrowPoint(node.arrowStart, { x: 0.12, y: 0.2 });
+  const end = normalizedArrowPoint(node.arrowEnd, { x: 0.88, y: 0.8 });
+  const startPoint = arrowSvgPoint(node, start);
+  const endPoint = arrowSvgPoint(node, end);
+  const controlPoint = arrowControlPoint(node, startPoint, endPoint);
+
+  return (
+    <>
+      {[
+        { key: "start", point: startPoint, handle: arrowResizeHandleForPoint(start) },
+        { key: "control", point: controlPoint, handle: null },
+        { key: "end", point: endPoint, handle: arrowResizeHandleForPoint(end) },
+      ].map((item) => (
+        <span
+          key={item.key}
+          className={`selection-handle arrow-selection-handle arrow-handle-${item.key}`}
+          style={{ left: item.point.x, top: item.point.y }}
+          onPointerDown={item.handle ? (event) => {
+            event.stopPropagation();
+            if (event.button !== 0) return;
+            onResizeStart(event, item.handle);
+          } : undefined}
+        />
+      ))}
+    </>
   );
 }
 
@@ -2846,6 +3026,15 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
   return renderInlineMarkdown(text, { links: false });
 }
 
+function textFormatClassName(node: CanvasNode, ...classNames: Array<string | false | null | undefined>) {
+  return [
+    ...classNames,
+    node.textBold ? "text-format-bold" : "",
+    node.textItalic ? "text-format-italic" : "",
+    node.textUnderline ? "text-format-underline" : "",
+  ].filter(Boolean).join(" ");
+}
+
 function extractMarkdownLinks(text: string) {
   const names = [...text.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1].trim()).filter(Boolean);
   return [...new Set(names)];
@@ -2875,7 +3064,7 @@ function NodeContent({
   if (["chartBar", "chartColumn", "chartLine", "chartPie", "hScrollBar", "vScrollBar", "hSlider", "vSlider", "volumeSlider"].includes(node.kind)) return <ChartVisual node={node} />;
   if (["arrow", "hRule", "vRule", "hSplitter", "vSplitter", "redX", "scratchOut", "squigglyLine", "hCurlyBrace", "vCurlyBrace", "shape"].includes(node.kind)) return <MarkupVisual node={node} />;
   if (["icon", "iconText", "image", "webcam", "videoPlayer", "coverFlow", "smartphone", "iphone", "ipad", "iosKeyboard", "iosMenu", "iosPicker"].includes(node.kind)) return <MediaVisual node={node} />;
-  if (node.kind === "stickyNote") return <div className="editable-node-text">{renderInlineFormatting(node.text ?? "")}</div>;
+  if (node.kind === "stickyNote") return <div className={textFormatClassName(node, "editable-node-text")}>{renderInlineFormatting(node.text ?? "")}</div>;
   return null;
 }
 
@@ -2883,7 +3072,7 @@ function ButtonVisual({ node }: { node: CanvasNode }) {
   const className = `button-node visual-button visual-button-${node.kind}`;
   return (
     <div className={className} data-link-key="whole">
-      <span>{renderInlineFormatting(node.text ?? "")}</span>
+      <span className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</span>
     </div>
   );
 }
@@ -2929,7 +3118,7 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
     return (
       <label className="checkbox-node">
         <span className={node.checked ? "mock-checkbox is-checked" : "mock-checkbox"} />
-        <span>{renderInlineFormatting(node.text ?? "")}</span>
+        <span className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</span>
       </label>
     );
   }
@@ -2937,7 +3126,7 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
     return (
       <label className="radio-node">
         <span className={node.checked ? "radio-dot is-checked" : "radio-dot"} />
-        <span>{renderInlineFormatting(node.text ?? "")}</span>
+        <span className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</span>
       </label>
     );
   }
@@ -2952,7 +3141,7 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
               {node.kind === "checkboxList" && checkboxRow.kind === "checkbox" ? (
                 <span className={`mock-checkbox${checkboxRow.checked ? " is-checked" : ""}${checkboxRow.indeterminate ? " is-indeterminate" : ""}`} />
               ) : null}
-              <span>{renderInlineFormatting(checkboxRow.text)}</span>
+              <span className={textFormatClassName(node)}>{renderInlineFormatting(checkboxRow.text)}</span>
             </div>
           );
         })}
@@ -2963,18 +3152,18 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
     const selectedOption = typeof selectedOptionIndex === "number" ? nodeOptions(node)[selectedOptionIndex] : null;
     return (
       <div className="dropdown-node">
-        <span>{renderInlineFormatting(selectedOption ?? node.text ?? "")}</span>
+        <span className={textFormatClassName(node)}>{renderInlineFormatting(selectedOption ?? node.text ?? "")}</span>
         <ChevronDown size={16} />
       </div>
     );
   }
-  if (node.kind === "textbox" || node.kind === "textInput") return <div className="textbox-node">{renderInlineFormatting(node.text || node.placeholder || "")}</div>;
-  if (node.kind === "textArea") return <div className="textarea-node">{renderInlineFormatting(node.text ?? "")}</div>;
+  if (node.kind === "textbox" || node.kind === "textInput") return <div className={textFormatClassName(node, "textbox-node")}>{renderInlineFormatting(node.text || node.placeholder || "")}</div>;
+  if (node.kind === "textArea") return <div className={textFormatClassName(node, "textarea-node")}>{renderInlineFormatting(node.text ?? "")}</div>;
   if (node.kind === "searchBox" || node.kind === "searchBoxVoice") {
     return (
       <div className="search-node">
         <Search size={14} />
-        <span>{renderInlineFormatting(node.text || node.placeholder || "")}</span>
+        <span className={textFormatClassName(node)}>{renderInlineFormatting(node.text || node.placeholder || "")}</span>
         {node.kind === "searchBoxVoice" ? <span className="mic-dot" /> : null}
       </div>
     );
@@ -3021,26 +3210,50 @@ function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: 
   if (node.kind === "buttonBar") {
     const items = nodeOptions(node);
     const activeIndex = items.length ? clamp(node.activeIndex ?? 0, 0, items.length - 1) : -1;
-    return <Segmented items={items} activeIndex={activeIndex} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
+    return <Segmented items={items} activeIndex={activeIndex} compact selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} textClassName={textFormatClassName(node)} />;
   }
-  if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={index === (node.activeIndex ?? 0) ? "is-active" : ""}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
+  if (node.kind === "vTabs") return <div className="v-tabs-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={textFormatClassName(node, index === (node.activeIndex ?? 0) ? "is-active" : "")}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
   if (node.kind === "linkBar" || node.kind === "breadcrumbs") {
     return (
       <div className={`linkbar-node ${node.kind}`}>
         {nodeOptions(node).map((item, index) => (
-          <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>
+          <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={textFormatClassName(node)}>
             {node.kind === "breadcrumbs" ? <span className="breadcrumb-label">{renderInlineFormatting(item)}</span> : renderInlineFormatting(item)}
           </LinkedVisualItem>
         ))}
       </div>
     );
   }
-  if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
-  if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
-  if (node.kind === "appBar") return <div className="app-bar-node"><span>{renderInlineFormatting(node.text ?? "")}</span><small>▾</small></div>;
+  if (node.kind === "menuBar") return <div className="menu-bar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={textFormatClassName(node)}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
+  if (node.kind === "menu") return <div className="menu-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={textFormatClassName(node)}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
+  if (node.kind === "appBar") return <AppBarVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (node.kind === "playback") return <div className="playback-node"><span>◀◀</span><span>▶</span><span>▶▶</span></div>;
-  if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
+  if (node.kind === "toolbar") return <div className="toolbar-node">{nodeOptions(node).map((item, index) => <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} className={textFormatClassName(node)}>{renderInlineFormatting(item)}</LinkedVisualItem>)}</div>;
   return null;
+}
+
+function AppBarVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
+  const icons = nodeOptions(node, ["Menu", "ChevronDown", "MoreVertical"]);
+  return (
+    <div className="app-bar-node">
+      {icons.map((iconName, index) => {
+        const Icon = getLucideIcon(iconName);
+        return (
+          <span
+            key={`${iconName}-${index}`}
+            className="app-bar-icon"
+            data-link-key={linkKeyForIndex("item", iconName, index)}
+            title={iconName}
+            onPointerDown={(event) => {
+              if (linksActive && selected && onLinkClick) event.stopPropagation();
+            }}
+          >
+            <Icon size="1.35em" strokeWidth={2.4} />
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 function TabsVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
@@ -3088,10 +3301,10 @@ function ContainerVisual({
   if (node.kind === "alertBox" || node.kind === "alertBoxAndroid") return <AlertVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (node.kind === "browser" || node.kind === "window") return <ChromeFrame node={node} />;
   if (node.kind === "modalScreen") return <div className="modal-screen-node" />;
-  if (node.kind === "fieldSet") return <fieldset className="fieldset-node"><legend>{renderInlineFormatting(node.text ?? "")}</legend></fieldset>;
-  if (node.kind === "popover") return <div className="popover-node"><span />{renderInlineFormatting(node.text ?? "")}</div>;
-  if (node.kind === "tooltip") return <div className="tooltip-node">{renderInlineFormatting(node.text ?? "")}</div>;
-  if (node.kind === "callout") return <div className="callout-node">{renderInlineFormatting(node.text ?? "")}</div>;
+  if (node.kind === "fieldSet") return <fieldset className="fieldset-node"><legend className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</legend></fieldset>;
+  if (node.kind === "popover") return <div className={textFormatClassName(node, "popover-node")}><span />{renderInlineFormatting(node.text ?? "")}</div>;
+  if (node.kind === "tooltip") return <div className={textFormatClassName(node, "tooltip-node")}>{renderInlineFormatting(node.text ?? "")}</div>;
+  if (node.kind === "callout") return <div className={textFormatClassName(node, "callout-node")}>{renderInlineFormatting(node.text ?? "")}</div>;
   return null;
 }
 
@@ -3208,7 +3421,7 @@ function AlertVisual({
 function ChromeFrame({ node }: { node: CanvasNode }) {
   return (
     <div className="chrome-frame-node">
-      <div><span /><span /><span /><strong>{renderInlineFormatting(node.text ?? "")}</strong></div>
+      <div><span /><span /><span /><strong className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</strong></div>
       <section />
     </div>
   );
@@ -3218,7 +3431,7 @@ function DataVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   if (node.kind === "treePane") return <TreePaneVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (node.kind === "list" || node.kind === "listIcon") {
     return (
-      <div className={`list-node ${node.kind}`}>
+      <div className={textFormatClassName(node, "list-node", node.kind)}>
         {nodeOptions(node).map((item, index) => (
           <LinkedVisualItem key={`${item}-${index}`} linkKey={linkKeyForIndex("item", item, index)} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick}>
             {node.kind === "listIcon" ? "◆ " : ""}
@@ -3230,11 +3443,11 @@ function DataVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   }
   if (node.kind === "dataGrid") return <DataGridVisual node={node} />;
   if (node.kind === "calendar" || node.kind === "datePicker") return <CalendarVisual node={node} />;
-  if (node.kind === "dateChooser") return <div className="date-chooser-node">{renderInlineFormatting(node.text ?? "")}<span>▣</span></div>;
-  if (node.kind === "timePicker") return <div className="time-picker-node"><span>{renderInlineFormatting(node.text ?? "")}</span><i /></div>;
+  if (node.kind === "dateChooser") return <div className={textFormatClassName(node, "date-chooser-node")}>{renderInlineFormatting(node.text ?? "")}<span>▣</span></div>;
+  if (node.kind === "timePicker") return <div className="time-picker-node"><span className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</span><i /></div>;
   if (node.kind === "siteMap") return <SiteMapVisual node={node} />;
   if (node.kind === "streetMap") return <div className="street-map-node"><span /><span /><span /></div>;
-  if (node.kind === "tagCloud") return <div className="tag-cloud-node">{(node.text ?? "").split(/\s+/).map((word, index) => <span key={`${word}-${index}`}>{renderInlineFormatting(word)}</span>)}</div>;
+  if (node.kind === "tagCloud") return <div className="tag-cloud-node">{(node.text ?? "").split(/\s+/).map((word, index) => <span key={`${word}-${index}`} className={textFormatClassName(node)}>{renderInlineFormatting(word)}</span>)}</div>;
   return null;
 }
 
@@ -3292,7 +3505,7 @@ function TreePaneVisual({ node, selected, linksActive, onLinkClick }: { node: Ca
           }}
         >
           <TreePaneIcon icon={row.icon} />
-          <span className="tree-pane-label">{renderInlineFormatting(row.label)}</span>
+          <span className={textFormatClassName(node, "tree-pane-label")}>{renderInlineFormatting(row.label)}</span>
         </span>
       ))}
     </div>
@@ -3324,7 +3537,7 @@ function DataGridVisual({ node }: { node: CanvasNode }) {
   const grid = parseDataGrid(node);
   const blankRows = createDataGridBlankRows(node, grid);
   return (
-    <table className="data-grid-node">
+    <table className={textFormatClassName(node, "data-grid-node")}>
       <colgroup>
         {grid.columns.map((column, index) => (
           <col key={`${column.text}-${index}`} style={{ width: column.width }} />
@@ -3509,12 +3722,12 @@ function parseDataGridControl(cell: string): { kind: "checkbox" | "radio"; state
 }
 
 function CalendarVisual({ node }: { node: CanvasNode }) {
-  return <div className="calendar-node"><strong>{renderInlineFormatting(node.text ?? "")}</strong>{Array.from({ length: 35 }, (_, index) => <span key={index}>{index > 4 ? index - 4 : ""}</span>)}</div>;
+  return <div className="calendar-node"><strong className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</strong>{Array.from({ length: 35 }, (_, index) => <span key={index}>{index > 4 ? index - 4 : ""}</span>)}</div>;
 }
 
 function SiteMapVisual({ node }: { node: CanvasNode }) {
   const items = nodeOptions(node);
-  return <div className="site-map-node"><strong>{renderInlineFormatting(items[0] ?? "")}</strong>{items.slice(1).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div>;
+  return <div className="site-map-node"><strong className={textFormatClassName(node)}>{renderInlineFormatting(items[0] ?? "")}</strong>{items.slice(1).map((item) => <span key={item} className={textFormatClassName(node)}>{renderInlineFormatting(item)}</span>)}</div>;
 }
 
 function ChartVisual({ node }: { node: CanvasNode }) {
@@ -3526,14 +3739,112 @@ function ChartVisual({ node }: { node: CanvasNode }) {
   return null;
 }
 
+function normalizedArrowPoint(point: CanvasPoint | undefined, fallback: CanvasPoint): CanvasPoint {
+  return {
+    x: clamp(point?.x ?? fallback.x, 0, 1),
+    y: clamp(point?.y ?? fallback.y, 0, 1),
+  };
+}
+
+function arrowSvgPoint(node: CanvasNode, point: CanvasPoint): CanvasPoint {
+  const inset = Math.min(18, Math.max(8, Math.min(node.width, node.height) * 0.22));
+  const drawableWidth = Math.max(1, node.width - inset * 2);
+  const drawableHeight = Math.max(1, node.height - inset * 2);
+  return {
+    x: inset + point.x * drawableWidth,
+    y: inset + point.y * drawableHeight,
+  };
+}
+
+function arrowControlPoint(node: CanvasNode, start: CanvasPoint, end: CanvasPoint): CanvasPoint {
+  if (node.arrowControl) return arrowSvgPoint(node, normalizedArrowPoint(node.arrowControl, { x: 0.5, y: 0.5 }));
+  const midX = (start.x + end.x) / 2;
+  const midY = (start.y + end.y) / 2;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const bend = Math.min(100, Math.max(28, length * 0.34));
+  return {
+    x: midX - (dy / length) * bend,
+    y: midY + (dx / length) * bend,
+  };
+}
+
+function pointOnArrow(node: CanvasNode, start: CanvasPoint, control: CanvasPoint, end: CanvasPoint, t: number): CanvasPoint {
+  if (node.arrowLine === "straight") {
+    return {
+      x: start.x + (end.x - start.x) * t,
+      y: start.y + (end.y - start.y) * t,
+    };
+  }
+  const oneMinusT = 1 - t;
+  return {
+    x: oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * control.x + t * t * end.x,
+    y: oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * control.y + t * t * end.y,
+  };
+}
+
+function arrowStrokeDashArray(node: CanvasNode) {
+  if (node.arrowStrokeStyle === "dashed") return "12 10";
+  if (node.arrowStrokeStyle === "dotted") return "1 9";
+  return undefined;
+}
+
+function ArrowVisual({ node }: { node: CanvasNode }) {
+  const start = arrowSvgPoint(node, normalizedArrowPoint(node.arrowStart, { x: 0.12, y: 0.2 }));
+  const end = arrowSvgPoint(node, normalizedArrowPoint(node.arrowEnd, { x: 0.88, y: 0.8 }));
+  const control = arrowControlPoint(node, start, end);
+  const isStraight = node.arrowLine === "straight";
+  const path = isStraight ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
+  const labelT = clamp((node.arrowLabelPosition ?? 50) / 100, 0, 1);
+  const labelPoint = pointOnArrow(node, start, control, end, labelT);
+  const markerId = `arrow-head-${node.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const label = node.text?.trim();
+  const dashArray = arrowStrokeDashArray(node);
+  const labelClassName = [
+    "arrow-label",
+    node.textBold ? "text-format-bold" : "",
+    node.textItalic ? "text-format-italic" : "",
+    node.textUnderline ? "text-format-underline" : "",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <div className="arrow-node">
+      <svg viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <marker id={markerId} markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse" markerUnits="strokeWidth">
+            <path d="M 1 1 L 11 6 L 1 11 Z" fill="var(--node-stroke)" />
+          </marker>
+        </defs>
+        <path className="arrow-shadow" d={path} strokeDasharray={dashArray} />
+        <path
+          className="arrow-line"
+          d={path}
+          strokeDasharray={dashArray}
+          markerStart={node.arrowHeadStart ? `url(#${markerId})` : undefined}
+          markerEnd={node.arrowHeadEnd !== false ? `url(#${markerId})` : undefined}
+        />
+      </svg>
+      {label ? (
+        <div
+          className={labelClassName}
+          style={{ left: labelPoint.x, top: labelPoint.y }}
+        >
+          {renderInlineFormatting(label)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function MarkupVisual({ node }: { node: CanvasNode }) {
-  if (node.kind === "arrow") return <div className="arrow-node"><span /></div>;
+  if (node.kind === "arrow") return <ArrowVisual node={node} />;
   if (node.kind === "hRule" || node.kind === "vRule") return <div className={`rule-node ${node.kind}`} />;
   if (node.kind === "hSplitter" || node.kind === "vSplitter") return <div className={`splitter-node ${node.kind}`}><span /></div>;
   if (node.kind === "redX") return <div className="red-x-node"><span /><span /></div>;
   if (node.kind === "scratchOut") return <div className="scratch-node">{Array.from({ length: 8 }, (_, index) => <span key={index} />)}</div>;
   if (node.kind === "squigglyLine") return <div className="squiggly-line-node" />;
-  if (node.kind === "hCurlyBrace" || node.kind === "vCurlyBrace") return <div className={`curly-node ${node.kind}`}><span>{node.kind === "hCurlyBrace" ? "︷" : "}"}</span><small>{renderInlineFormatting(node.text ?? "")}</small></div>;
+  if (node.kind === "hCurlyBrace" || node.kind === "vCurlyBrace") return <div className={`curly-node ${node.kind}`}><span>{node.kind === "hCurlyBrace" ? "︷" : "}"}</span><small className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</small></div>;
   if (node.kind === "shape") return <div className="shape-node" />;
   return null;
 }
@@ -3545,7 +3856,7 @@ function MediaVisual({ node }: { node: CanvasNode }) {
   }
   if (node.kind === "iconText") {
     const Icon = getLucideIcon(node.icon);
-    return <div className="icon-text-node" data-link-key="whole"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span>{renderInlineFormatting(node.text ?? "")}</span></div>;
+    return <div className="icon-text-node" data-link-key="whole"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</span></div>;
   }
   if (node.kind === "image") {
     if (node.imageDataUrl) {
@@ -3558,8 +3869,8 @@ function MediaVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "coverFlow") return <div className="coverflow-node"><span /><span /><span /></div>;
   if (node.kind === "smartphone" || node.kind === "iphone" || node.kind === "ipad") return <DeviceVisual node={node} />;
   if (node.kind === "iosKeyboard") return <div className="ios-keyboard-node">{Array.from({ length: 30 }, (_, index) => <span key={index}>{index === 26 ? "space" : ""}</span>)}</div>;
-  if (node.kind === "iosMenu") return <div className="ios-menu-node">{nodeOptions(node).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div>;
-  if (node.kind === "iosPicker") return <div className="ios-picker-node">{nodeOptions(node).map((item) => <span key={item}>{renderInlineFormatting(item)}</span>)}</div>;
+  if (node.kind === "iosMenu") return <div className="ios-menu-node">{nodeOptions(node).map((item) => <span key={item} className={textFormatClassName(node)}>{renderInlineFormatting(item)}</span>)}</div>;
+  if (node.kind === "iosPicker") return <div className="ios-picker-node">{nodeOptions(node).map((item) => <span key={item} className={textFormatClassName(node)}>{renderInlineFormatting(item)}</span>)}</div>;
   return null;
 }
 
@@ -3574,6 +3885,7 @@ function Segmented({
   selected,
   linksActive,
   onLinkClick,
+  textClassName,
 }: {
   items: string[];
   activeIndex: number;
@@ -3581,13 +3893,14 @@ function Segmented({
   selected?: boolean;
   linksActive?: boolean;
   onLinkClick?: (key: string) => void;
+  textClassName?: string;
 }) {
   return (
     <div className={compact ? "segmented compact" : "segmented"}>
       {items.map((item, index) => (
         <span
           key={`${item}-${index}`}
-          className={index === activeIndex ? "is-active" : ""}
+          className={[index === activeIndex ? "is-active" : "", textClassName].filter(Boolean).join(" ")}
           data-link-key={compact ? linkKeyForIndex("item", item, index) : undefined}
           onPointerDown={(event) => {
             if (compact && linksActive && selected && onLinkClick) event.stopPropagation();
@@ -3779,6 +4092,9 @@ function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
   }
   if (node.kind === "alertBox" || node.kind === "alertBoxAndroid") {
     return nodeOptions(node, ["No", "Yes"]).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item || `Button ${index + 1}` }));
+  }
+  if (node.kind === "appBar") {
+    return nodeOptions(node, ["Menu", "ChevronDown", "MoreVertical"]).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item || `Icon ${index + 1}` }));
   }
   if (["accordion", "linkBar", "breadcrumbs", "menuBar", "menu", "toolbar", "vTabs", "list", "listIcon"].includes(node.kind)) {
     return nodeOptions(node).map((item, index) => {
@@ -4102,6 +4418,169 @@ function AlertProperties({
   );
 }
 
+function AppBarProperties({
+  node,
+  onChange,
+  onChangeEnd,
+}: {
+  node: CanvasNode;
+  onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
+  onChangeEnd: () => void;
+}) {
+  const icons = nodeOptions(node, ["Menu", "ChevronDown", "MoreVertical"]);
+  const updateIcon = (index: number, icon: string) => {
+    const nextIcons = [...icons];
+    nextIcons[index] = icon;
+    onChange("options", { options: nextIcons });
+  };
+
+  return (
+    <>
+      <label className="property-swatch-row">
+        Color
+        <input type="color" value={node.fill ?? "#d9d9d9"} onBlur={onChangeEnd} onChange={(event) => onChange("fill", { fill: event.target.value })} />
+      </label>
+      <section className="property-section appbar-icons-section">
+        <h3>Icons</h3>
+        <div className="appbar-icon-list">
+          {icons.map((icon, index) => (
+            <IconPicker key={`${index}-${icon}`} value={icon || "Circle"} onChange={(name) => updateIcon(index, name)} />
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function AppBarTextProperties({
+  node,
+  onChange,
+  onChangeEnd,
+}: {
+  node: CanvasNode;
+  onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
+  onChangeEnd: () => void;
+}) {
+  return (
+    <>
+      <section className="property-section">
+        <h3>Text</h3>
+        <input
+          className="compact-number-input"
+          type="number"
+          min={8}
+          max={72}
+          value={node.fontSize ?? 16}
+          onBlur={onChangeEnd}
+          onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+        />
+      </section>
+    </>
+  );
+}
+
+function ArrowProperties({
+  node,
+  onChange,
+  onChangeEnd,
+}: {
+  node: CanvasNode;
+  onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
+  onChangeEnd: () => void;
+}) {
+  const line = node.arrowLine ?? "curved";
+  const strokeStyle = node.arrowStrokeStyle ?? "solid";
+
+  return (
+    <>
+      <section className="property-section arrow-properties">
+        <h3>Arrow</h3>
+        <div className="arrow-options-grid">
+          <span>Options</span>
+          <div className="toolbar-group arrow-toolbar-group">
+            <button type="button" className={line === "curved" ? "is-active" : ""} title="Curved" onClick={() => onChange("arrowLine", { arrowLine: "curved" })}>
+              <CornerUpRight size={18} />
+            </button>
+            <button type="button" className={line === "straight" ? "is-active" : ""} title="Straight" onClick={() => onChange("arrowLine", { arrowLine: "straight" })}>
+              <span className="straight-line-icon" />
+            </button>
+          </div>
+          <div className="toolbar-group arrow-toolbar-group">
+            <button type="button" className={node.arrowHeadStart ? "is-active" : ""} title="Arrowhead at start" onClick={() => onChange("arrowHeadStart", { arrowHeadStart: !node.arrowHeadStart })}>
+              <ArrowLeft size={19} />
+            </button>
+            <button type="button" className={node.arrowHeadEnd !== false ? "is-active" : ""} title="Arrowhead at end" onClick={() => onChange("arrowHeadEnd", { arrowHeadEnd: node.arrowHeadEnd === false })}>
+              <ArrowRight size={19} />
+            </button>
+          </div>
+        </div>
+        <label className="property-range-row">
+          Label Position
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={node.arrowLabelPosition ?? 50}
+            onBlur={onChangeEnd}
+            onChange={(event) => onChange("arrowLabelPosition", { arrowLabelPosition: Number(event.target.value) })}
+          />
+        </label>
+      </section>
+      <label className="property-swatch-row">
+        Color
+        <input type="color" value={node.stroke ?? "#000000"} onBlur={onChangeEnd} onChange={(event) => onChange("stroke", { stroke: event.target.value })} />
+      </label>
+      <label className="property-swatch-row">
+        Label Color
+        <input type="color" value={node.textColor ?? "#111827"} onBlur={onChangeEnd} onChange={(event) => onChange("textColor", { textColor: event.target.value })} />
+      </label>
+      <label className="property-range-row">
+        Opacity
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={node.opacity ?? 100}
+          onBlur={onChangeEnd}
+          onChange={(event) => onChange("opacity", { opacity: Number(event.target.value) })}
+        />
+      </label>
+      <section className="property-section">
+        <h3>Stroke</h3>
+        <div className="toolbar-group arrow-stroke-toolbar">
+          <button type="button" className={strokeStyle === "solid" ? "is-active" : ""} title="Solid" onClick={() => onChange("arrowStrokeStyle", { arrowStrokeStyle: "solid" })}>
+            <span className="stroke-icon stroke-solid" />
+          </button>
+          <button type="button" className={strokeStyle === "dashed" ? "is-active" : ""} title="Dashed" onClick={() => onChange("arrowStrokeStyle", { arrowStrokeStyle: "dashed" })}>
+            <span className="stroke-icon stroke-dashed" />
+          </button>
+          <button type="button" className={strokeStyle === "dotted" ? "is-active" : ""} title="Dotted" onClick={() => onChange("arrowStrokeStyle", { arrowStrokeStyle: "dotted" })}>
+            <span className="stroke-icon stroke-dotted" />
+          </button>
+        </div>
+      </section>
+      <section className="property-section">
+        <h3>Text</h3>
+        <div className="text-toolbar arrow-text-toolbar">
+          <div className="toolbar-group">
+            <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
+            <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
+            <button type="button" className={node.textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !node.textUnderline })}><Underline size={18} /></button>
+          </div>
+          <input
+            type="number"
+            min={8}
+            max={72}
+            value={node.fontSize ?? 14}
+            onBlur={onChangeEnd}
+            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+          />
+        </div>
+      </section>
+    </>
+  );
+}
+
 function PropertiesPane({
   selectedNode,
   selectedCount,
@@ -4176,8 +4655,10 @@ function PropertiesPane({
   const isTabs = isTabsNode(selectedNode);
   const isAccordion = selectedNode.kind === "accordion";
   const isAlert = selectedNode.kind === "alertBox" || selectedNode.kind === "alertBoxAndroid";
+  const isAppBar = selectedNode.kind === "appBar";
   const isButtonBar = selectedNode.kind === "buttonBar";
   const isDataGrid = selectedNode.kind === "dataGrid";
+  const isArrow = selectedNode.kind === "arrow";
   const linkableElements = linkableElementsForNode(selectedNode);
   const changeLink = (key: string, link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => {
     const nextLink =
@@ -4260,6 +4741,10 @@ function PropertiesPane({
             />
           </label>
         </>
+      ) : isAppBar ? (
+        <AppBarProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
+      ) : isArrow ? (
+        <ArrowProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
       ) : !isTextNode ? (
         <>
           <label>
@@ -4272,7 +4757,7 @@ function PropertiesPane({
           </label>
         </>
       ) : null}
-      {!isTabs ? (
+      {!isTabs && !isAppBar && !isArrow ? (
         <label className="property-swatch-row">
           Text Color
           <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
@@ -4307,7 +4792,9 @@ function PropertiesPane({
         <AccordionProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
       ) : isAlert ? (
         <AlertProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
-      ) : isTextNode ? (
+      ) : isAppBar ? (
+        <AppBarTextProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
+      ) : isArrow ? null : isTextNode ? (
         <>
           <section className="property-section">
             <h3>State</h3>
@@ -4380,7 +4867,7 @@ function PropertiesPane({
           <textarea value={selectedNode.text ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("text", { text: event.target.value })} />
         </label>
       ) : null}
-      {selectedNode.options && !isTabs && usesCommaSeparatedOptions(selectedNode) ? (
+      {selectedNode.options && !isTabs && !isAppBar && usesCommaSeparatedOptions(selectedNode) ? (
         <label>
           Options
           <CommaOptionsInput
@@ -4392,7 +4879,7 @@ function PropertiesPane({
           />
         </label>
       ) : null}
-      {selectedNode.options && !isTabs && !usesCommaSeparatedOptions(selectedNode) ? (
+      {selectedNode.options && !isTabs && !isAppBar && !usesCommaSeparatedOptions(selectedNode) ? (
         <label>
           Options
           <textarea value={selectedNode.options.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("options", { options: event.target.value.split("\n") })} />
