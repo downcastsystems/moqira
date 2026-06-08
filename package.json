@@ -9,7 +9,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "install:app": "npm run tauri -- build --bundles app && rm -rf \"/Applications/Moqira.app\" && ditto \"src-tauri/target/release/bundle/macos/Moqira.app\" \"/Applications/Moqira.app\" && echo \"✓ Installed to /Applications\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
