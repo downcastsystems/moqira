@@ -31,6 +31,7 @@ import {
   Settings,
   Square,
   StickyNote,
+  Strikethrough,
   Type,
   Underline,
   X,
@@ -127,18 +128,19 @@ function componentCategoryNames(definition: ComponentDefinition) {
 const componentLibrary: ComponentDefinition[] = [
   component("rectangle", "Rectangle", ["Common", "Containers"], "rectangle", 180, 110, { fill: "#ffffff", stroke: "#1f2937" }),
   component("button", "Button", ["Common", "Forms"], "button", 112, 40, { text: "Button", fill: "#ffffff" }),
-  component("circleButton", "Circle Button", ["Common", "Forms"], "CirclePlus", 72, 72, { text: "+", fill: "#ffffff", fontSize: 30 }),
-  component("pointyButton", "Pointy Button", "Forms", "ChevronLeft", 150, 44, { text: "Button", fill: "#ffffff", variant: "left" }),
+  component("circleButton", "Circle Button", ["Common", "Forms"], "CirclePlus", 72, 72, { text: "", fill: "#ffffff", fontSize: 30, showBorder: true }),
+  component("pointyButton", "Pointy Button", "Forms", "ChevronLeft", 150, 44, { text: "Button", fill: "#ffffff", variant: "left", showBorder: false }),
   component("multilineButton", "Multiline Button", "Forms", "MousePointer2", 170, 54, { text: "Multiline Button\nSecond line of text", fill: "#ffffff" }),
   component("helpButton", "Help Button", "Forms", "CircleHelp", 60, 60, { text: "?", fill: "#ffffff", fontSize: 30 }),
   component("icon", "Icon", ["Common", "Media"], "icon", 64, 64, { icon: "Plus", textColor: "#111827" }),
   component("iconText", "Icon and Text", ["Common", "Media"], "BadgeInfo", 110, 90, { icon: "Square", text: "Icon Name", textColor: "#111827" }),
   component("stickyNote", "Comment", "Markup", "stickyNote", 180, 160, { text: "A comment", fill: "#fff2a8", fontSize: 16 }),
+  component("stickyNote", "Sticky Note", "Markup", "stickyNote", 180, 160, { text: "A sticky note", fill: "#fff2a8", fontSize: 16 }),
 
-  component("textLabel", "Text Label", ["Common", "Text"], "Type", 180, 34, { text: "Some text", fontSize: 18 }),
-  component("textTitle", "Text Title", "Text", "Heading1", 240, 48, { text: "A Big Title", fontSize: 28 }),
+  component("textLabel", "Label", ["Common", "Text"], "Type", 180, 34, { text: "Some text", fontSize: 18 }),
+  component("textTitle", "Title", "Text", "Heading1", 240, 48, { text: "A Big Title", fontSize: 28 }),
   component("textSubtitle", "Text Subtitle", "Text", "Heading2", 220, 42, { text: "A Subtitle", fontSize: 22 }),
-  component("textParagraph", "Text Paragraph", ["Common", "Text"], "Pilcrow", 275, 80, {
+  component("textParagraph", "Paragraph", ["Common", "Text"], "Pilcrow", 275, 80, {
     text: "A **paragraph** of {color:red}text{color} with an [unassigned link].\nA *second* <u>row</u> of ~~text~~ with a [web link]\nAn icon :circle-plus-solid: inline with text.",
     fontSize: 13,
   }),
@@ -146,7 +148,7 @@ const componentLibrary: ComponentDefinition[] = [
   component("squigglyParagraph", "Squiggly Paragraph", ["Common", "Text"], "AlignLeft", 250, 86, { text: "A paragraph of text.\nA second row of text." }),
 
   component("checkbox", "Checkbox", ["Common", "Forms"], "checkbox", 150, 32, { text: "Checkbox", checked: false }),
-  component("checkboxList", "Checkbox List", ["Common", "Forms"], "checkboxList", 230, 168, {
+  component("checkboxList", "Checkbox Group", ["Common", "Forms"], "checkboxList", 230, 168, {
     options: [
       "[ ] not selected",
       "[x] selected",
@@ -161,15 +163,15 @@ const componentLibrary: ComponentDefinition[] = [
   component("radioButton", "Radio Button", ["Common", "Forms"], "CircleDot", 160, 32, { text: "Radio Button", checked: false }),
   component("radioButtonGroup", "Radio Button Group", ["Common", "Forms"], "ListChecks", 210, 126, { options: ["option 1", "option 2", "option 3"], text: "Radio Group" }),
   component("dropdown", "Dropdown", "Forms", "dropdown", 180, 40, { text: "Choose...", options: ["First", "Second", "Third"] }),
-  component("comboBox", "ComboBox", ["Common", "Forms"], "ChevronDownSquare", 180, 40, { text: "ComboBox", options: ["First", "Second", "Third"] }),
+  component("comboBox", "ComboBox", ["Common", "Forms"], "ChevronDownSquare", 180, 40, { text: "ComboBox", options: ["First", "Second", "Third"], showScrollbar: true }),
   component("textbox", "Textbox", "Forms", "textbox", 190, 40, { text: "Text input" }),
-  component("textInput", "Text Input", ["Common", "Forms"], "TextCursorInput", 190, 40, { text: "", placeholder: "Text input" }),
-  component("textArea", "Text Area", ["Common", "Forms"], "Text", 230, 120, { text: "Text area" }),
+  component("textInput", "Text Input", ["Common", "Forms"], "TextCursorInput", 190, 40, { text: "", placeholder: "Text input", showBorder: true, opacity: 100 }),
+  component("textArea", "Text Area", ["Common", "Forms"], "Text", 230, 120, { text: "", showBorder: true, showScrollbar: true, opacity: 100 }),
   component("searchBox", "Search Box", "Forms", "Search", 190, 36, { text: "", placeholder: "search" }),
   component("searchBoxVoice", "Search Box + Mic", "Forms", "Mic", 210, 36, { text: "", placeholder: "search" }),
   component("colorPicker", "Color Picker", "Forms", "Palette", 76, 76, { fill: "#2563eb" }),
-  component("numericStepper", "Num. Stepper", "Forms", "PanelTopOpen", 96, 58, { value: 3 }),
-  component("onOffSwitch", "ON/OFF Switch", "Forms", "ToggleRight", 108, 56, { checked: true, fill: "#6cc24a" }),
+  component("numericStepper", "Numeric Stepper", "Forms", "PanelTopOpen", 96, 58, { value: 3 }),
+  component("onOffSwitch", "Switch", "Forms", "ToggleRight", 108, 56, { checked: true, fill: "#6cc24a" }),
   component("progressBar", "Progress Bar", "Forms", "BatteryMedium", 170, 28, { value: 45 }),
   component("progressBarIndeterminate", "Progress (Ind.)", "Forms", "MoreHorizontal", 170, 28, { variant: "indeterminate" }),
 
@@ -181,13 +183,22 @@ const componentLibrary: ComponentDefinition[] = [
     tabPlacement: "top",
     tabAlignment: "left",
   }),
+  component("tabBar", "Tab Bar", "Navigation", "PanelTop", 240, 48, {
+    options: ["One", "Two", "Three", "Four"],
+    activeIndex: 0,
+    showBorder: true,
+    showScrollbar: false,
+    tabPlacement: "top",
+    tabAlignment: "center",
+  }),
   component("buttonBar", "Button Bar", "Navigation", "buttonBar", 240, 40, { options: ["One", "Two", "Three"], activeIndex: 0 }),
-  component("vTabs", "V.Tabs", "Navigation", "PanelLeft", 150, 160, { options: ["First Tab", "Second Tab", "Third Tab", "Fourth Tab"], activeIndex: 1 }),
+  component("vTabs", "Vertical Tabs", "Navigation", "PanelLeft", 150, 160, { options: ["First Tab", "Second Tab", "Third Tab", "Fourth Tab"], activeIndex: 1 }),
   component("linkBar", "Link Bar", "Navigation", "Link", 250, 38, { options: ["Home", "Products", "Company", "Blog"] }),
-  component("breadcrumbs", "Breadcrumbs", "Navigation", "ChevronRight", 240, 34, { options: ["Home", "Products", "Bags", "Feature"] }),
+  component("breadcrumbs", "Breadcrumbs", "Navigation", "ChevronRight", 240, 34, { options: ["Home", "Products", "Xyz", "Features"] }),
   component("menuBar", "Menu Bar", ["Common", "Navigation"], "Menu", 250, 34, { options: ["File", "Edit", "View", "Help"] }),
-  component("menu", "Menu", "Navigation", "PanelTopClose", 120, 142, { options: ["Open", "Open Recent", "Close", "Save", "Toggle Item"] }),
+  component("menu", "Menu", "Navigation", "PanelTopClose", 150, 167, { options: ["Open,CTRL+O", "Open Recent >", "---", "o Option One", "Option Two", "=", "x Toggle Item", "-Disabled Item-", "Exit,CTRL+Q"] }),
   component("appBar", "App Bar", "Navigation", "PanelTop", 320, 44, {
+    text: "Heading",
     options: ["Menu", "ChevronDown", "MoreVertical"],
     fill: "#d9d9d9",
     textColor: "#111827",
@@ -197,7 +208,7 @@ const componentLibrary: ComponentDefinition[] = [
   component("toolbar", "Toolbar", "Navigation", "Rows3", 230, 32, { options: ["B", "I", "U", "link", "align"] }),
 
   component("accordion", "Accordion", "Containers", "PanelTop", 150, 186, {
-    options: ["Item 1", "Item 2", "- Sub-Item 2.1", "- Sub-Item 2.2", "Item 3"],
+    options: ["Item One", "Item Two", "- Sub-Item 2.1", "- Sub-Item 2.2", "Item Three", "Item Four"],
     activeIndex: 0,
     showScrollbar: false,
   }),
@@ -213,17 +224,17 @@ const componentLibrary: ComponentDefinition[] = [
     showBorder: true,
     textAlign: "left",
   }),
-  component("browser", "Browser", ["Common", "Containers"], "PanelTop", 220, 160, { text: "http://example.com" }),
-  component("window", "Window", ["Common", "Containers"], "PanelTop", 220, 160, { text: "Window Title" }),
+  component("browser", "Browser Window", ["Common", "Containers"], "PanelTop", 220, 160, { text: "A Web Page\nhttps://", fill: "#ffffff", showBorder: true, showScrollbar: true }),
+  component("window", "Window", ["Common", "Containers"], "PanelTop", 220, 160, { text: "Window Name", showScrollbar: true }),
   component("modalScreen", "Modal Screen", "Containers", "PanelTop", 220, 140, { fill: "#777777" }),
   component("fieldSet", "Field Set", "Containers", "SquareDashed", 220, 170, { text: "Group Name", fill: "#ffffff" }),
-  component("popover", "Popover", "Containers", "MessageSquare", 160, 105, { text: "Popover", fill: "#ffffff" }),
+  component("popover", "Popover", "Containers", "MessageSquare", 160, 105, { text: "", fill: "#ffffff" }),
   component("tooltip", "Tooltip", "Containers", "MessageCircle", 165, 74, { text: "a tooltip", fill: "#ffffff" }),
   component("callout", "Callout", "Containers", "CircleAlert", 86, 86, { text: "1", fill: "#fff300", fontSize: 28 }),
 
-  component("list", "List", "Data", "List", 140, 130, { options: ["Item One", "Item Two", "Item Three"] }),
+  component("list", "List", "Data", "List", 140, 130, { options: ["Item One", "Item Two", "Item Three"], showBorder: true, fill: "#ffffff", opacity: 100 }),
   component("listIcon", "List with Icons", "Data", "ListChecks", 170, 130, { options: ["Item One", "Item Two", "Item Three"] }),
-  component("treePane", "TreeView Pane", "Data", "FolderTree", 300, 285, {
+  component("treePane", "Tree Pane", "Data", "FolderTree", 300, 285, {
     options: [
       "f Use f for closed folders",
       "F Use F for open folders",
@@ -250,13 +261,15 @@ const componentLibrary: ComponentDefinition[] = [
       "[Data Grid Docs     ](https://balsamiq.com/wireframes/desktop/docs/datagrids/), , , [ ]",
       "{65L, 0R, 35, 0C}",
     ].join("\n"),
+    showBorder: true,
+    showScrollbar: true,
   }),
   component("calendar", "Calendar", "Data", "CalendarDays", 130, 130, { text: "MAY 2026" }),
   component("dateChooser", "Date Chooser", "Data", "CalendarPlus", 128, 42, { text: " / / " }),
   component("datePicker", "Date Picker", "Data", "Calendar", 135, 170, { text: "May 2026" }),
   component("timePicker", "Time Picker", "Data", "Clock3", 88, 120, { text: "4:14" }),
   component("siteMap", "Site Map", "Data", "Network", 210, 130, { options: ["Home", "About", "Products", "Contact"] }),
-  component("streetMap", "Street Map", "Data", "Map", 160, 120, { fill: "#eef2e8" }),
+  component("streetMap", "Map", "Data", "Map", 160, 120, { fill: "#eef2e8" }),
   component("tagCloud", "Tag Cloud", "Data", "Tags", 250, 105, { text: "wireframe mockup UI design notes", fontSize: 14 }),
 
   component("chartBar", "Chart: Bar", "Charts", "BarChartHorizontal", 150, 105),
@@ -265,7 +278,7 @@ const componentLibrary: ComponentDefinition[] = [
   component("chartPie", "Chart: Pie", "Charts", "PieChart", 110, 110),
   component("hScrollBar", "H.Scroll Bar", "Charts", "PanelBottom", 180, 28, { orientation: "horizontal" }),
   component("vScrollBar", "V.Scroll Bar", ["Common", "Charts"], "PanelRight", 28, 180, { orientation: "vertical" }),
-  component("hSlider", "H.Slider", "Charts", "SlidersHorizontal", 170, 36, { orientation: "horizontal", value: 55 }),
+  component("hSlider", "Slider", "Charts", "SlidersHorizontal", 170, 36, { orientation: "horizontal", value: 55 }),
   component("vSlider", "V.Slider", "Charts", "SlidersVertical", 36, 170, { orientation: "vertical", value: 55 }),
   component("volumeSlider", "Volume Slider", "Charts", "Volume2", 180, 46, { value: 55 }),
 
@@ -281,18 +294,18 @@ const componentLibrary: ComponentDefinition[] = [
     arrowStart: { x: 0.12, y: 0.2 },
     arrowEnd: { x: 0.88, y: 0.8 },
   }),
-  component("hRule", "H.Rule", "Markup", "Minus", 150, 24, { orientation: "horizontal" }),
+  component("hRule", "Horizontal Rule", "Markup", "Minus", 150, 24, { orientation: "horizontal" }),
   component("vRule", "V.Rule", "Markup", "Minus", 24, 150, { orientation: "vertical" }),
   component("hSplitter", "H.Splitter", "Markup", "GripHorizontal", 180, 28),
   component("vSplitter", "V.Splitter", "Markup", "GripVertical", 28, 180),
   component("redX", "Red X", "Markup", "X", 140, 70, { stroke: "#8b111c" }),
   component("scratchOut", "Scratch-Out", "Markup", "Paintbrush", 140, 70),
   component("squigglyLine", "Squiggly Line", ["Common", "Markup"], "Waves", 160, 35),
-  component("hCurlyBrace", "H.Curly Brace", "Markup", "Braces", 180, 46, { text: "A paragraph of text.\nA second row of text." }),
-  component("vCurlyBrace", "V.Curly Brace", "Markup", "Braces", 56, 160, { text: "A paragraph of text.\nA second row of text." }),
+  component("hCurlyBrace", "H. Curly Brace", "Markup", "Braces", 180, 46, { text: "A paragraph of text.\nA second row of text." }),
+  component("vCurlyBrace", "V. Curly Brace", "Markup", "Braces", 56, 160, { text: "A paragraph of text.\nA second row of text." }),
   component("shape", "Shape", ["Common", "Markup"], "Circle", 95, 95, { fill: "#ffffff" }),
 
-  component("image", "Image", ["Common", "Media"], "Image", 140, 120, { fill: "#ffffff" }),
+  component("image", "Image", ["Common", "Media"], "Image", 140, 120, { text: "", fill: "#ffffff", showBorder: false }),
   component("webcam", "Webcam", "Media", "Webcam", 130, 130),
   component("videoPlayer", "Video Player", "Media", "Clapperboard", 220, 145),
   component("coverFlow", "Cover Flow", "Media", "GalleryHorizontal", 200, 120),
@@ -418,7 +431,7 @@ type InteractiveSelectState = {
 
 type TextEditorState = {
   nodeId: string;
-  field: "text" | "options";
+  field: "text" | "options" | "value";
   draft: string;
   x: number;
   y: number;
@@ -477,7 +490,7 @@ type MenuActions = {
   openRecentProject: (path: string) => void;
 };
 
-function editableTextField(node: CanvasNode): "text" | "options" | null {
+function editableTextField(node: CanvasNode): "text" | "options" | "value" | null {
   const optionKinds: ComponentKind[] = [
     "accordion",
     "buttonBar",
@@ -485,26 +498,52 @@ function editableTextField(node: CanvasNode): "text" | "options" | null {
     "breadcrumbs",
     "linkBar",
     "list",
-    "listIcon",
     "menu",
     "menuBar",
-    "playback",
     "radioButtonGroup",
-    "siteMap",
-    "tabs",
     "tabBar",
-    "toolbar",
     "treePane",
     "vTabs",
-    "iosMenu",
-    "iosPicker",
+  ];
+  const textKinds: ComponentKind[] = [
+    "alertBox",
+    "appBar",
+    "arrow",
+    "browser",
+    "button",
+    "callout",
+    "checkbox",
+    "circleButton",
+    "comboBox",
+    "dataGrid",
+    "dateChooser",
+    "fieldSet",
+    "hCurlyBrace",
+    "image",
+    "link",
+    "multilineButton",
+    "pointyButton",
+    "popover",
+    "radioButton",
+    "searchBox",
+    "stickyNote",
+    "textArea",
+    "textInput",
+    "textLabel",
+    "textParagraph",
+    "textTitle",
+    "tooltip",
+    "vCurlyBrace",
+    "window",
   ];
   if (optionKinds.includes(node.kind)) return "options";
-  if (typeof node.text === "string") return "text";
+  if (node.kind === "numericStepper") return "value";
+  if (textKinds.includes(node.kind)) return "text";
   return null;
 }
 
-function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft: string) {
+function isMultilineTextNode(node: CanvasNode, field: "text" | "options" | "value", draft: string) {
+  if (field === "value") return false;
   if (field === "options" && usesCommaSeparatedOptions(node)) return false;
   if (field === "options") return true;
   if (["dataGrid", "stickyNote", "textArea", "textParagraph", "squigglyParagraph"].includes(node.kind)) return true;
@@ -512,7 +551,7 @@ function isMultilineTextNode(node: CanvasNode, field: "text" | "options", draft:
 }
 
 function usesCommaSeparatedOptions(node: CanvasNode) {
-  return ["alertBox", "alertBoxAndroid", "appBar", "breadcrumbs", "buttonBar", "linkBar", "menuBar", "tabs", "tabBar"].includes(node.kind);
+  return ["alertBox", "alertBoxAndroid", "breadcrumbs", "buttonBar", "linkBar", "menuBar", "tabs", "tabBar"].includes(node.kind);
 }
 
 function optionsEditDraft(node: CanvasNode) {
@@ -523,6 +562,11 @@ function optionsEditDraft(node: CanvasNode) {
 function parseOptionsEditDraft(node: CanvasNode, draft: string) {
   if (usesCommaSeparatedOptions(node)) return draft.split(",").map((item) => item.trim()).filter(Boolean);
   return draft.split("\n");
+}
+
+function textEditDraft(node: CanvasNode) {
+  if ((node.kind === "searchBox" || node.kind === "searchBoxVoice") && !node.text) return node.placeholder ?? "";
+  return node.text ?? "";
 }
 
 function isTabsNode(node: CanvasNode) {
@@ -1367,7 +1411,12 @@ function App() {
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     if (!field || !canvasRect) return;
 
-    const draft = field === "options" ? optionsEditDraft(node) : node.text ?? "";
+    const draft =
+      field === "options"
+        ? optionsEditDraft(node)
+        : field === "value"
+          ? String(node.value ?? "")
+          : textEditDraft(node);
     const multiline = isMultilineTextNode(node, field, draft);
     const lineCount = Math.max(1, draft.split("\n").length);
     const maxEditorHeight = Math.max(142, Math.floor(canvasRect.height * 0.4));
@@ -1410,7 +1459,9 @@ function App() {
         const patch =
           editor.field === "options"
             ? { options: parseOptionsEditDraft(node, draft) }
-            : { text: draft };
+            : editor.field === "value"
+              ? { value: Number.isFinite(Number(draft)) ? Number(draft) : draft }
+              : { text: draft };
         updateNode(editor.nodeId, patch);
       }
       textEditorRef.current = null;
@@ -2092,6 +2143,11 @@ function App() {
         setContextMenu(null);
         selectOnly(null);
       }
+      if (event.key === "Enter" && !modifier && selectedNode && !isEditingText) {
+        event.preventDefault();
+        beginTextEdit(selectedNode);
+        return;
+      }
       if (selectedIds.length && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
         if (target?.closest("input, textarea, select")) return;
         event.preventDefault();
@@ -2115,6 +2171,7 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     activeWireframe?.nodes,
+    beginTextEdit,
     closeTextEditor,
     copyNode,
     cutNode,
@@ -2132,6 +2189,7 @@ function App() {
     selectNone,
     selectedId,
     selectedIds,
+    selectedNode,
     textEditor,
     undoProjectChange,
     unlockAllNodes,
@@ -2685,6 +2743,7 @@ function App() {
       {textEditor ? (
         <FloatingTextEditor
           editor={textEditor}
+          node={activeWireframe?.nodes.find((node) => node.id === textEditor.nodeId) ?? null}
           onChange={(draft) => {
             setTextEditor((current) => {
               if (!current) return current;
@@ -2693,6 +2752,7 @@ function App() {
               return nextEditor;
             });
           }}
+          onFormatChange={(patch) => updateNode(textEditor.nodeId, patch, { groupKey: `text-format:${textEditor.nodeId}` })}
           onCommit={(draft) => closeTextEditor(true, draft)}
           onCancel={() => closeTextEditor(false)}
         />
@@ -2769,7 +2829,7 @@ function CanvasItem({
 
   return (
     <div
-      className={`canvas-node node-${node.kind}${selected ? " is-selected" : ""}${primarySelected ? " is-primary-selected" : ""}${node.locked ? " is-locked" : ""}`}
+      className={`canvas-node node-${node.kind}${selected ? " is-selected" : ""}${primarySelected ? " is-primary-selected" : ""}${node.locked ? " is-locked" : ""}${node.disabled ? " is-disabled" : ""}`}
       style={style}
       onPointerDown={(event) => {
         if (event.button !== 0) {
@@ -2798,6 +2858,10 @@ function CanvasItem({
         }
         if (linksActive && linkTarget) {
           onLinkClick(linkTarget.dataset.linkKey ?? "whole");
+          return;
+        }
+        if (linksActive && node.links?.whole) {
+          onLinkClick("whole");
           return;
         }
         if (editingLocked && (node.kind === "dropdown" || node.kind === "comboBox")) {
@@ -3032,6 +3096,7 @@ function textFormatClassName(node: CanvasNode, ...classNames: Array<string | fal
     node.textBold ? "text-format-bold" : "",
     node.textItalic ? "text-format-italic" : "",
     node.textUnderline ? "text-format-underline" : "",
+    node.textStrikethrough ? "text-format-strikethrough" : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -3056,7 +3121,7 @@ function NodeContent({
   if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton"].includes(node.kind)) return <ButtonVisual node={node} />;
   if (["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(node.kind)) return <TextVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["checkbox", "checkboxList", "radioButton", "radioButtonGroup", "dropdown", "comboBox", "textbox", "textInput", "textArea", "searchBox", "searchBoxVoice", "colorPicker", "numericStepper", "onOffSwitch", "progressBar", "progressBarIndeterminate"].includes(node.kind)) {
-    return <FormVisual node={node} selectedOptionIndex={selectedOptionIndex} />;
+    return <FormVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={selectedOptionIndex} />;
   }
   if (["tabs", "buttonBar", "tabBar", "vTabs", "linkBar", "breadcrumbs", "menuBar", "menu", "appBar", "playback", "toolbar"].includes(node.kind)) return <NavigationVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} />;
   if (["accordion", "alertBox", "alertBoxAndroid", "browser", "window", "modalScreen", "fieldSet", "popover", "tooltip", "callout"].includes(node.kind)) return <ContainerVisual node={node} selected={selected} linksActive={linksActive} onLinkClick={onLinkClick} selectedOptionIndex={selectedOptionIndex} />;
@@ -3088,6 +3153,7 @@ function TextVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
     node.textBold ? "text-format-bold" : "",
     node.textItalic ? "text-format-italic" : "",
     (node.textUnderline ?? node.kind === "link") ? "text-format-underline" : "",
+    node.textStrikethrough ? "text-format-strikethrough" : "",
   ].filter(Boolean).join(" ");
   if (node.kind === "squigglyParagraph") {
     return (
@@ -3113,7 +3179,19 @@ function TextVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   return <div className={textClassName} data-link-key="whole">{renderInlineMarkdown(text, { selected, linksActive, onLinkClick })}</div>;
 }
 
-function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedOptionIndex?: number | null }) {
+function FormVisual({
+  node,
+  selected = false,
+  linksActive = false,
+  onLinkClick,
+  selectedOptionIndex,
+}: {
+  node: CanvasNode;
+  selected?: boolean;
+  linksActive?: boolean;
+  onLinkClick?: (key: string) => void;
+  selectedOptionIndex?: number | null;
+}) {
   if (node.kind === "checkbox") {
     return (
       <label className="checkbox-node">
@@ -3136,7 +3214,14 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
         {nodeOptions(node, ["Option one", "Option two", "Option three"]).map((option, index) => {
           const checkboxRow = parseCheckboxListRow(option);
           return (
-            <div key={`${option}-${index}`} className={checkboxRow.kind === "checkbox" && checkboxRow.disabled ? "is-disabled" : ""}>
+            <div
+              key={`${option}-${index}`}
+              className={checkboxRow.kind === "checkbox" && checkboxRow.disabled ? "is-disabled" : ""}
+              data-link-key={linkKeyForIndex("item", option, index)}
+              onPointerDown={(event) => {
+                if (linksActive && selected && onLinkClick) event.stopPropagation();
+              }}
+            >
               {node.kind === "radioButtonGroup" ? <span className={index === 0 ? "radio-dot is-checked" : "radio-dot"} /> : null}
               {node.kind === "checkboxList" && checkboxRow.kind === "checkbox" ? (
                 <span className={`mock-checkbox${checkboxRow.checked ? " is-checked" : ""}${checkboxRow.indeterminate ? " is-indeterminate" : ""}`} />
@@ -3149,7 +3234,9 @@ function FormVisual({ node, selectedOptionIndex }: { node: CanvasNode; selectedO
     );
   }
   if (node.kind === "dropdown" || node.kind === "comboBox") {
-    const selectedOption = typeof selectedOptionIndex === "number" ? nodeOptions(node)[selectedOptionIndex] : null;
+    const options = nodeOptions(node);
+    const storedIndex = typeof node.activeIndex === "number" ? clamp(node.activeIndex, 0, Math.max(0, options.length - 1)) : null;
+    const selectedOption = typeof selectedOptionIndex === "number" ? options[selectedOptionIndex] : typeof storedIndex === "number" ? options[storedIndex] : null;
     return (
       <div className="dropdown-node">
         <span className={textFormatClassName(node)}>{renderInlineFormatting(selectedOption ?? node.text ?? "")}</span>
@@ -3234,24 +3321,30 @@ function NavigationVisual({ node, selected, linksActive, onLinkClick }: { node: 
 
 function AppBarVisual({ node, selected, linksActive, onLinkClick }: { node: CanvasNode; selected?: boolean; linksActive?: boolean; onLinkClick?: (key: string) => void }) {
   const icons = nodeOptions(node, ["Menu", "ChevronDown", "MoreVertical"]);
+  const iconAt = (index: number, fallback: string) => {
+    const iconName = icons[index] || fallback;
+    const Icon = getLucideIcon(iconName);
+    return (
+      <span
+        className="app-bar-icon"
+        data-link-key={linkKeyForIndex("item", iconName, index)}
+        title={iconName}
+        onPointerDown={(event) => {
+          if (linksActive && selected && onLinkClick) event.stopPropagation();
+        }}
+      >
+        <Icon size="1.35em" strokeWidth={2.4} />
+      </span>
+    );
+  };
+
   return (
     <div className="app-bar-node">
-      {icons.map((iconName, index) => {
-        const Icon = getLucideIcon(iconName);
-        return (
-          <span
-            key={`${iconName}-${index}`}
-            className="app-bar-icon"
-            data-link-key={linkKeyForIndex("item", iconName, index)}
-            title={iconName}
-            onPointerDown={(event) => {
-              if (linksActive && selected && onLinkClick) event.stopPropagation();
-            }}
-          >
-            <Icon size="1.35em" strokeWidth={2.4} />
-          </span>
-        );
-      })}
+      {iconAt(0, "Menu")}
+      <span className={textFormatClassName(node, "app-bar-title")}>{renderInlineFormatting(node.text ?? "Heading")}</span>
+      {iconAt(1, "ChevronDown")}
+      <span className="app-bar-spacer" />
+      {iconAt(2, "MoreVertical")}
     </div>
   );
 }
@@ -3262,7 +3355,7 @@ function TabsVisual({ node, selected, linksActive, onLinkClick }: { node: Canvas
   const placement = node.tabPlacement ?? "top";
   const alignment = node.tabAlignment ?? "left";
   return (
-    <div className={`tabs-node tabs-${placement} tabs-align-${alignment}${node.showBorder === false ? " no-border" : " has-border"}${node.showScrollbar ? " has-scrollbar" : ""}${node.textBold ? " tabs-text-bold" : ""}${node.textItalic ? " tabs-text-italic" : ""}${node.textUnderline ? " tabs-text-underline" : ""}`}>
+    <div className={`tabs-node tabs-${placement} tabs-align-${alignment}${node.showBorder === false ? " no-border" : " has-border"}${node.showScrollbar ? " has-scrollbar" : ""}${node.textBold ? " tabs-text-bold" : ""}${node.textItalic ? " tabs-text-italic" : ""}${node.textUnderline ? " tabs-text-underline" : ""}${node.textStrikethrough ? " tabs-text-strikethrough" : ""}`}>
       <div className="tabs-strip">
         {items.map((item, index) => (
           <LinkedVisualItem
@@ -3329,6 +3422,7 @@ function AccordionVisual({
     node.textBold ? "accordion-text-bold" : "",
     node.textItalic ? "accordion-text-italic" : "",
     node.textUnderline ? "accordion-text-underline" : "",
+    node.textStrikethrough ? "accordion-text-strikethrough" : "",
   ].filter(Boolean).join(" ");
 
   return (
@@ -3393,6 +3487,7 @@ function AlertVisual({
     node.textBold ? "alert-text-bold" : "",
     node.textItalic ? "alert-text-italic" : "",
     node.textUnderline ? "alert-text-underline" : "",
+    node.textStrikethrough ? "alert-text-strikethrough" : "",
   ].filter(Boolean).join(" ");
 
   return (
@@ -3420,9 +3515,11 @@ function AlertVisual({
 
 function ChromeFrame({ node }: { node: CanvasNode }) {
   return (
-    <div className="chrome-frame-node">
-      <div><span /><span /><span /><strong className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</strong></div>
-      <section />
+    <div className={`chrome-frame-node${node.showBorder === false ? " no-border" : ""}${node.showScrollbar ? " has-scrollbar" : ""}`}>
+      <div><span /><span /><span /><strong className={textFormatClassName(node)}>{renderInlineFormatting((node.text ?? "").split("\n")[0] ?? "")}</strong></div>
+      <section>
+        {node.showScrollbar ? <i aria-hidden="true" /> : null}
+      </section>
     </div>
   );
 }
@@ -3806,6 +3903,7 @@ function ArrowVisual({ node }: { node: CanvasNode }) {
     node.textBold ? "text-format-bold" : "",
     node.textItalic ? "text-format-italic" : "",
     node.textUnderline ? "text-format-underline" : "",
+    node.textStrikethrough ? "text-format-strikethrough" : "",
   ].filter(Boolean).join(" ");
 
   return (
@@ -3915,12 +4013,16 @@ function Segmented({
 
 function FloatingTextEditor({
   editor,
+  node,
   onChange,
+  onFormatChange,
   onCommit,
   onCancel,
 }: {
   editor: TextEditorState;
+  node: CanvasNode | null;
   onChange: (draft: string) => void;
+  onFormatChange: (patch: Partial<CanvasNode>) => void;
   onCommit: (draft?: string) => void;
   onCancel: () => void;
 }) {
@@ -3928,8 +4030,15 @@ function FloatingTextEditor({
   const undoStackRef = useRef<TextEditSnapshot[]>([]);
   const redoStackRef = useRef<TextEditSnapshot[]>([]);
   const lineCount = Math.max(1, editor.draft.split("\n").length);
+  const toolbarHeight = node ? 48 : 0;
   const naturalHeight = editor.multiline ? 56 + lineCount * 28 : editor.height;
-  const editorHeight = editor.multiline ? clamp(naturalHeight, editor.height, editor.maxHeight) : editor.height;
+  const baseEditorHeight = editor.multiline ? clamp(naturalHeight, editor.height, editor.maxHeight) : Math.max(editor.height, 58);
+  const editorHeight = Math.max(baseEditorHeight + toolbarHeight, node ? 128 : baseEditorHeight);
+  const textUnderline = node ? node.textUnderline ?? node.kind === "link" : false;
+  const toggleFormat = (patch: Partial<CanvasNode>) => {
+    onFormatChange(patch);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  };
   const setTextareaSelection = (snapshot: Pick<TextEditSnapshot, "selectionStart" | "selectionEnd">) => {
     window.requestAnimationFrame(() => {
       const textarea = textareaRef.current;
@@ -3999,10 +4108,28 @@ function FloatingTextEditor({
   return (
     <div
       className={editor.multiline ? "floating-text-editor is-multiline" : "floating-text-editor"}
-      style={{ left: editor.x, top: editor.y, width: editor.width, height: editorHeight, maxHeight: editor.maxHeight }}
+      style={{ left: editor.x, top: editor.y, width: editor.width, height: editorHeight, maxHeight: editor.maxHeight + toolbarHeight }}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
+      {node ? (
+        <div className="floating-text-toolbar">
+          <div className="toolbar-group">
+            <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onMouseDown={(event) => event.preventDefault()} onClick={() => toggleFormat({ textBold: !node.textBold })}><Bold size={16} /></button>
+            <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onMouseDown={(event) => event.preventDefault()} onClick={() => toggleFormat({ textItalic: !node.textItalic })}><Italic size={16} /></button>
+            <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onMouseDown={(event) => event.preventDefault()} onClick={() => toggleFormat({ textUnderline: !textUnderline })}><Underline size={16} /></button>
+            <button type="button" className={node.textStrikethrough ? "is-active" : ""} title="Strikethrough" onMouseDown={(event) => event.preventDefault()} onClick={() => toggleFormat({ textStrikethrough: !node.textStrikethrough })}><Strikethrough size={16} /></button>
+          </div>
+          <input
+            type="number"
+            min={8}
+            max={72}
+            value={node.fontSize ?? 14}
+            title="Font size"
+            onChange={(event) => onFormatChange({ fontSize: Number(event.target.value) })}
+          />
+        </div>
+      ) : null}
       <textarea
         ref={textareaRef}
         value={editor.draft}
@@ -4015,7 +4142,11 @@ function FloatingTextEditor({
         onSelect={(event) => rememberTextInputSelection(event.currentTarget)}
         onKeyUp={(event) => rememberTextInputSelection(event.currentTarget)}
         onMouseUp={(event) => rememberTextInputSelection(event.currentTarget)}
-        onBlur={(event) => onCommit(event.currentTarget.value)}
+        onBlur={(event) => {
+          const nextTarget = event.relatedTarget;
+          if (nextTarget && event.currentTarget.closest(".floating-text-editor")?.contains(nextTarget)) return;
+          onCommit(event.currentTarget.value);
+        }}
         onKeyDown={(event) => {
           const textarea = event.currentTarget;
           const modifier = event.metaKey || event.ctrlKey;
@@ -4080,7 +4211,12 @@ type LinkableElement = {
 
 function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
   const whole = { key: "whole", label: "Whole Control" };
-  if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton", "icon", "iconText"].includes(node.kind)) return [whole];
+  if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton", "image", "checkbox", "comboBox", "radioButton", "searchBox", "onOffSwitch", "textArea"].includes(node.kind)) return [whole];
+  if (node.kind === "datePicker") return ["CANCEL", "OK"].map((label, index) => ({ key: linkKeyForIndex("item", label, index), label }));
+  if (node.kind === "dataGrid") return [{ key: "text:data-grid-docs", label: "Data Grid Docs" }];
+  if (node.kind === "checkboxList" || node.kind === "radioButtonGroup") {
+    return nodeOptions(node).map((item, index) => ({ key: linkKeyForIndex("item", item, index), label: item.replace(/^[-\s[\]x()]+/i, "").trim() || `Item ${index + 1}` }));
+  }
   if (node.kind === "treePane") {
     return parseTreePaneRows(node).map((row) => ({ key: row.key, label: row.label || "Untitled row" }));
   }
@@ -4147,33 +4283,6 @@ function LinkTargetSelect({
       <option value="duplicate-wireframe">Link to a Duplicate of This Wireframe</option>
       <option value="back">Go Back</option>
     </select>
-  );
-}
-
-function CommaOptionsInput({ node, onCommit }: { node: CanvasNode; onCommit: (options: string[]) => void }) {
-  const optionsDraft = optionsEditDraft(node);
-  const [draft, setDraft] = useState(() => optionsDraft);
-
-  useEffect(() => {
-    setDraft(optionsDraft);
-  }, [node.id, optionsDraft]);
-
-  const commit = () => {
-    onCommit(parseOptionsEditDraft(node, draft));
-  };
-
-  return (
-    <input
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          event.currentTarget.blur();
-        }
-      }}
-    />
   );
 }
 
@@ -4278,6 +4387,7 @@ function TabsProperties({
             <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
             <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
             <button type="button" className={node.textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !node.textUnderline })}><Underline size={18} /></button>
+            <button type="button" className={node.textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !node.textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
           <input
             type="number"
@@ -4289,16 +4399,6 @@ function TabsProperties({
           />
         </div>
       </section>
-      <label>
-        Tab Labels
-        <CommaOptionsInput
-          node={node}
-          onCommit={(nextOptions) => {
-            onChange("options", { options: nextOptions });
-            onChangeEnd();
-          }}
-        />
-      </label>
     </>
   );
 }
@@ -4315,6 +4415,7 @@ function AccordionProperties({
   const sections = parseAccordionSections(node);
   const activeIndex = accordionOpenIndex(node);
   const textUnderline = Boolean(node.textUnderline);
+  const textStrikethrough = Boolean(node.textStrikethrough);
 
   return (
     <>
@@ -4351,6 +4452,7 @@ function AccordionProperties({
             <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
             <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
             <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+            <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
           <input
             type="number"
@@ -4377,6 +4479,7 @@ function AlertProperties({
 }) {
   const textAlign = node.textAlign ?? (node.kind === "alertBox" ? "center" : "left");
   const textUnderline = Boolean(node.textUnderline);
+  const textStrikethrough = Boolean(node.textStrikethrough);
 
   return (
     <>
@@ -4398,6 +4501,7 @@ function AlertProperties({
             <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
             <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
             <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+            <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
           <div className="toolbar-group">
             <button type="button" className={textAlign === "left" ? "is-active" : ""} title="Align left" onClick={() => onChange("textAlign", { textAlign: "left" })}><AlignLeft size={18} /></button>
@@ -4461,19 +4565,30 @@ function AppBarTextProperties({
   onChange: (property: keyof CanvasNode, patch: Partial<CanvasNode>) => void;
   onChangeEnd: () => void;
 }) {
+  const textUnderline = Boolean(node.textUnderline);
+  const textStrikethrough = Boolean(node.textStrikethrough);
+
   return (
     <>
       <section className="property-section">
         <h3>Text</h3>
-        <input
-          className="compact-number-input"
-          type="number"
-          min={8}
-          max={72}
-          value={node.fontSize ?? 16}
-          onBlur={onChangeEnd}
-          onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
-        />
+        <div className="text-toolbar arrow-text-toolbar">
+          <div className="toolbar-group">
+            <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
+            <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
+            <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+            <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
+          </div>
+          <input
+            className="compact-number-input"
+            type="number"
+            min={8}
+            max={72}
+            value={node.fontSize ?? 16}
+            onBlur={onChangeEnd}
+            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+          />
+        </div>
       </section>
     </>
   );
@@ -4566,6 +4681,7 @@ function ArrowProperties({
             <button type="button" className={node.textBold ? "is-active" : ""} title="Bold" onClick={() => onChange("textBold", { textBold: !node.textBold })}><Bold size={18} /></button>
             <button type="button" className={node.textItalic ? "is-active" : ""} title="Italic" onClick={() => onChange("textItalic", { textItalic: !node.textItalic })}><Italic size={18} /></button>
             <button type="button" className={node.textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !node.textUnderline })}><Underline size={18} /></button>
+            <button type="button" className={node.textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !node.textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
           <input
             type="number"
@@ -4652,6 +4768,7 @@ function PropertiesPane({
   const isTextNode = ["text", "textLabel", "textTitle", "textSubtitle", "textParagraph", "link", "squigglyParagraph"].includes(selectedNode.kind);
   const textAlign = selectedNode.textAlign ?? "left";
   const textUnderline = selectedNode.textUnderline ?? selectedNode.kind === "link";
+  const textStrikethrough = Boolean(selectedNode.textStrikethrough);
   const isTabs = isTabsNode(selectedNode);
   const isAccordion = selectedNode.kind === "accordion";
   const isAlert = selectedNode.kind === "alertBox" || selectedNode.kind === "alertBoxAndroid";
@@ -4659,6 +4776,41 @@ function PropertiesPane({
   const isButtonBar = selectedNode.kind === "buttonBar";
   const isDataGrid = selectedNode.kind === "dataGrid";
   const isArrow = selectedNode.kind === "arrow";
+  const selectedEditableField = editableTextField(selectedNode);
+  const genericTextStyleKinds: ComponentKind[] = [
+    "button",
+    "checkbox",
+    "checkboxList",
+    "comboBox",
+    "dateChooser",
+    "fieldSet",
+    "hCurlyBrace",
+    "image",
+    "linkBar",
+    "multilineButton",
+    "numericStepper",
+    "pointyButton",
+    "popover",
+    "radioButton",
+    "radioButtonGroup",
+    "searchBox",
+    "stickyNote",
+    "textArea",
+    "textInput",
+    "tooltip",
+    "vCurlyBrace",
+    "window",
+  ];
+  const genericStateKinds: ComponentKind[] = ["button", "checkbox", "comboBox", "dateChooser", "link", "numericStepper", "radioButton", "searchBox", "hSlider", "textArea", "textInput"];
+  const genericTextStyle = !isTabs && !isAccordion && !isAlert && !isAppBar && !isArrow && !isTextNode && genericTextStyleKinds.includes(selectedNode.kind);
+  const showGenericState = genericStateKinds.includes(selectedNode.kind);
+  const showGenericBorder = !isTabs && !isAlert && "showBorder" in selectedNode;
+  const showGenericScrollbar = !isTabs && !isAccordion && "showScrollbar" in selectedNode;
+  const showGenericOpacity = !isTabs && !isArrow && "opacity" in selectedNode;
+  const genericState = selectedNode.disabled ? "disabled" : "normal";
+  const selectedNodeOptions = nodeOptions(selectedNode);
+  const canChooseActiveOption = (selectedNode.kind === "dropdown" || selectedNode.kind === "comboBox") && selectedNodeOptions.length > 0;
+  const selectedActiveIndex = canChooseActiveOption ? clamp(selectedNode.activeIndex ?? 0, 0, selectedNodeOptions.length - 1) : -1;
   const linkableElements = linkableElementsForNode(selectedNode);
   const changeLink = (key: string, link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => {
     const nextLink =
@@ -4712,6 +4864,32 @@ function PropertiesPane({
           <button type="button" onClick={() => onLayer("forward")} title="Bring forward"><BringToFront size={18} /><span>Forward</span></button>
         </div>
       </section>
+      {showGenericBorder ? (
+        <section className="property-section">
+          <h3>Border</h3>
+          <label className="toggle-setting">
+            <input
+              type="checkbox"
+              checked={selectedNode.showBorder !== false}
+              onChange={(event) => groupedChange("showBorder", { showBorder: event.target.checked })}
+            />
+            <span>Show Border</span>
+          </label>
+        </section>
+      ) : null}
+      {showGenericScrollbar ? (
+        <section className="property-section">
+          <h3>Scrollbar</h3>
+          <label className="icon-toggle-setting" title="Show scrollbar">
+            <input
+              type="checkbox"
+              checked={Boolean(selectedNode.showScrollbar)}
+              onChange={(event) => groupedChange("showScrollbar", { showScrollbar: event.target.checked })}
+            />
+            <span aria-hidden="true" />
+          </label>
+        </section>
+      ) : null}
       {isTabs ? (
         <>
           <section className="property-section">
@@ -4763,6 +4941,19 @@ function PropertiesPane({
           <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
         </label>
       ) : null}
+      {showGenericOpacity ? (
+        <label className="property-range-row">
+          Opacity
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={selectedNode.opacity ?? 100}
+            onBlur={onNodeChangeEnd}
+            onChange={(event) => groupedChange("opacity", { opacity: Number(event.target.value) })}
+          />
+        </label>
+      ) : null}
       {linkableElements.length ? (
         <section className="property-section">
           <div className="property-section-heading">
@@ -4798,7 +4989,7 @@ function PropertiesPane({
         <>
           <section className="property-section">
             <h3>State</h3>
-            <select defaultValue="normal">
+            <select value={genericState} onChange={(event) => groupedChange("disabled", { disabled: event.target.value === "disabled" || undefined })}>
               <option value="normal">Normal</option>
               <option value="disabled">Disabled</option>
             </select>
@@ -4810,6 +5001,7 @@ function PropertiesPane({
                 <button type="button" className={selectedNode.textBold ? "is-active" : ""} title="Bold" onClick={() => groupedChange("textBold", { textBold: !selectedNode.textBold })}><Bold size={18} /></button>
                 <button type="button" className={selectedNode.textItalic ? "is-active" : ""} title="Italic" onClick={() => groupedChange("textItalic", { textItalic: !selectedNode.textItalic })}><Italic size={18} /></button>
                 <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => groupedChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+                <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => groupedChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
               </div>
               <div className="toolbar-group">
                 <button type="button" className={textAlign === "left" ? "is-active" : ""} title="Align left" onClick={() => groupedChange("textAlign", { textAlign: "left" })}><AlignLeft size={18} /></button>
@@ -4829,60 +5021,73 @@ function PropertiesPane({
         </>
       ) : (
         <>
-          <section className="property-section">
-            <h3>State</h3>
-            <select defaultValue="normal">
-              <option value="normal">Normal</option>
-              <option value="disabled">Disabled</option>
-            </select>
-          </section>
-          <label>
-            Font Size
-            <input
-              type="number"
-              min={8}
-              max={72}
-              value={selectedNode.fontSize ?? 14}
-              onBlur={onNodeChangeEnd}
-              onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
-            />
-          </label>
+          {showGenericState ? (
+            <section className="property-section">
+              <h3>State</h3>
+              <select value={genericState} onChange={(event) => groupedChange("disabled", { disabled: event.target.value === "disabled" || undefined })}>
+                <option value="normal">Normal</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </section>
+          ) : null}
+          {genericTextStyle ? (
+            <section className="property-section">
+              <h3>Text</h3>
+              <div className="text-toolbar arrow-text-toolbar">
+                <div className="toolbar-group">
+                  <button type="button" className={selectedNode.textBold ? "is-active" : ""} title="Bold" onClick={() => groupedChange("textBold", { textBold: !selectedNode.textBold })}><Bold size={18} /></button>
+                  <button type="button" className={selectedNode.textItalic ? "is-active" : ""} title="Italic" onClick={() => groupedChange("textItalic", { textItalic: !selectedNode.textItalic })}><Italic size={18} /></button>
+                  <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => groupedChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+                  <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => groupedChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
+                </div>
+                <input
+                  type="number"
+                  min={8}
+                  max={72}
+                  value={selectedNode.fontSize ?? 14}
+                  onBlur={onNodeChangeEnd}
+                  onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
+                />
+              </div>
+            </section>
+          ) : null}
         </>
       )}
+      {"checked" in selectedNode ? (
+        <label className="checkbox-setting">
+          <input type="checkbox" checked={Boolean(selectedNode.checked)} onChange={(event) => groupedChange("checked", { checked: event.target.checked })} />
+          Checked
+        </label>
+      ) : null}
+      {canChooseActiveOption ? (
+        <section className="property-section">
+          <h3>Selection</h3>
+          <select value={String(selectedActiveIndex)} onChange={(event) => groupedChange("activeIndex", { activeIndex: Number(event.target.value) })}>
+            {selectedNodeOptions.map((item, index) => (
+              <option key={`${item}-${index}`} value={index}>
+                {item || `Item ${index + 1}`}
+              </option>
+            ))}
+          </select>
+        </section>
+      ) : null}
       {"value" in selectedNode ? (
         <label>
           Value
-          <input value={selectedNode.value ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("value", { value: event.target.value })} />
+          <input
+            type="number"
+            min={["progressBar", "hSlider", "vSlider", "volumeSlider"].includes(selectedNode.kind) ? 0 : undefined}
+            max={["progressBar", "hSlider", "vSlider", "volumeSlider"].includes(selectedNode.kind) ? 100 : undefined}
+            value={selectedNode.value ?? ""}
+            onBlur={onNodeChangeEnd}
+            onChange={(event) => groupedChange("value", { value: Number.isFinite(event.target.valueAsNumber) ? event.target.valueAsNumber : event.target.value })}
+          />
         </label>
       ) : null}
       {"placeholder" in selectedNode ? (
         <label>
           Placeholder
           <input value={selectedNode.placeholder ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("placeholder", { placeholder: event.target.value })} />
-        </label>
-      ) : null}
-      {"text" in selectedNode ? (
-        <label>
-          {isDataGrid ? "Data Grid" : "Text"}
-          <textarea value={selectedNode.text ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("text", { text: event.target.value })} />
-        </label>
-      ) : null}
-      {selectedNode.options && !isTabs && !isAppBar && usesCommaSeparatedOptions(selectedNode) ? (
-        <label>
-          Options
-          <CommaOptionsInput
-            node={selectedNode}
-            onCommit={(options) => {
-              groupedChange("options", { options });
-              onNodeChangeEnd();
-            }}
-          />
-        </label>
-      ) : null}
-      {selectedNode.options && !isTabs && !isAppBar && !usesCommaSeparatedOptions(selectedNode) ? (
-        <label>
-          Options
-          <textarea value={selectedNode.options.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("options", { options: event.target.value.split("\n") })} />
         </label>
       ) : null}
       {selectedNode.columns && !isDataGrid ? (

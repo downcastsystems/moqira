@@ -108,6 +108,7 @@ export type CanvasNode = {
   textColor?: string;
   fontSize?: number;
   locked?: boolean;
+  disabled?: boolean;
   checked?: boolean;
   options?: string[];
   activeIndex?: number;
@@ -120,6 +121,7 @@ export type CanvasNode = {
   textBold?: boolean;
   textItalic?: boolean;
   textUnderline?: boolean;
+  textStrikethrough?: boolean;
   icon?: string;
   value?: string | number;
   orientation?: "horizontal" | "vertical";
