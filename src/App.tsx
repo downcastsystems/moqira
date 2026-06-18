@@ -40,6 +40,36 @@ import type { LucideIcon } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  cloneNodesForPaste,
+  duplicateNodesInStack,
+  moveNodeLayer,
+  patchNode,
+  patchNodes,
+  pointHitsNode,
+  rectFromPoints,
+  rectIntersectsNode,
+  selectedNodesInStack,
+  type LayerAction,
+} from "./lib/canvasNodeStack";
+import {
+  commitProjectHistoryChange,
+  createDefaultAppearance,
+  createDefaultProject,
+  createNextWireframe,
+  createProjectHistory,
+  dirtyProjectSnapshot,
+  duplicateWireframe as duplicateWireframeModel,
+  projectSnapshot,
+  pushHistoryEntry,
+  redoProjectHistory,
+  undoProjectHistory,
+  updateActiveWireframeInProject,
+  wireframeBackground,
+  wireframeShowGrid,
+  type ProjectChangeOptions,
+  type ProjectHistory,
+} from "./lib/projectModel";
+import {
   commonComponentRank,
   componentCategories,
   componentCategoryNames,
@@ -82,15 +112,6 @@ const legacyAppFontFamilyKey = "mockups-app-font-family";
 const legacyAccentTitlebarKey = "mockups-accent-titlebar";
 const legacyRecentProjectsKey = "mockups-recent-projects";
 const maxRecentProjects = 8;
-const maxProjectHistoryEntries = 100;
-
-function wireframeBackground(wireframe: Wireframe | undefined) {
-  return wireframe?.background ?? "white";
-}
-
-function wireframeShowGrid(wireframe: Wireframe | undefined) {
-  return wireframe?.showGrid ?? true;
-}
 
 const lucideIconNames: string[] = Object.keys(LucideIcons)
   .filter((name) => /^[A-Z]/.test(name) && !name.endsWith("Icon") && !name.endsWith("LucideIcon"))
@@ -233,16 +254,6 @@ type RecentProject = {
   openedAt: number;
 };
 
-type ProjectHistory = {
-  past: MockupProject[];
-  present: MockupProject;
-  future: MockupProject[];
-};
-
-type ProjectChangeOptions = {
-  groupKey?: string;
-};
-
 type ClipboardImage = {
   dataUrl: string;
   mimeType: string;
@@ -263,7 +274,7 @@ type MenuActions = {
   deleteNode: () => void;
   duplicateNode: () => void;
   selectNone: () => void;
-  layerNode: (action: "front" | "back" | "forward" | "backward") => void;
+  layerNode: (action: LayerAction) => void;
   lockNode: () => void;
   unlockAllNodes: () => void;
   openSettings: () => void;
@@ -425,33 +436,8 @@ function createId(prefix: string) {
   return `${prefix}-${random}`;
 }
 
-function createDefaultProject(): MockupProject {
-  const firstWireframeId = createId("wireframe");
-  return {
-    schemaVersion: 1,
-    name: "New Project",
-    activeWireframeId: firstWireframeId,
-    appearance: {
-      colorScheme: "system",
-      accentColor: "#2563eb",
-      appFontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      appFontSize: 14,
-      accentTitlebar: false,
-    },
-    wireframes: [
-      {
-        id: firstWireframeId,
-        name: "Wireframe 1",
-        background: "white",
-        showGrid: true,
-        nodes: [],
-      },
-    ],
-  };
-}
-
 function defaultAppearance(): MockupProject["appearance"] {
-  return createDefaultProject().appearance;
+  return createDefaultAppearance();
 }
 
 function createArrowNodeFromPoints(start: CanvasPoint, end: CanvasPoint): CanvasNode {
@@ -550,64 +536,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function pointHitsNode(x: number, y: number, node: CanvasNode) {
-  return x >= node.x && x <= node.x + node.width && y >= node.y && y <= node.y + node.height;
-}
-
-function rectFromPoints(startX: number, startY: number, currentX: number, currentY: number) {
-  const x = Math.min(startX, currentX);
-  const y = Math.min(startY, currentY);
-  return {
-    x,
-    y,
-    width: Math.abs(currentX - startX),
-    height: Math.abs(currentY - startY),
-  };
-}
-
-function rectIntersectsNode(rect: { x: number; y: number; width: number; height: number }, node: CanvasNode) {
-  return rect.x <= node.x + node.width && rect.x + rect.width >= node.x && rect.y <= node.y + node.height && rect.y + rect.height >= node.y;
-}
-
-function moveNodeLayer(nodes: CanvasNode[], ids: string[], action: "front" | "back" | "forward" | "backward") {
-  const selected = new Set(ids);
-  if (!nodes.some((node) => selected.has(node.id))) return nodes;
-  if (action === "front" || action === "back") {
-    const moving = nodes.filter((node) => selected.has(node.id));
-    const rest = nodes.filter((node) => !selected.has(node.id));
-    return action === "front" ? [...rest, ...moving] : [...moving, ...rest];
-  }
-  const next = [...nodes];
-  if (action === "forward") {
-    for (let index = next.length - 2; index >= 0; index -= 1) {
-      if (!selected.has(next[index].id) || selected.has(next[index + 1].id)) continue;
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    }
-  }
-  if (action === "backward") {
-    for (let index = 1; index < next.length; index += 1) {
-      if (!selected.has(next[index].id) || selected.has(next[index - 1].id)) continue;
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    }
-  }
-  return next;
-}
-
 function linkLabel(link: CanvasLink | undefined, wireframes: Wireframe[]) {
   if (!link) return "No Link";
   if (link.kind === "back") return "Go Back";
   if (link.kind === "url") return link.url || "Web Address";
   return wireframes.find((wireframe) => wireframe.id === link.wireframeId)?.name ?? "Missing Wireframe";
-}
-
-function uniqueWireframeName(baseName: string, wireframes: Wireframe[]) {
-  const normalizedNames = new Set(wireframes.map((wireframe) => wireframe.name.trim().toLowerCase()));
-  const cleanBaseName = baseName.trim() || "Wireframe";
-  if (!normalizedNames.has(cleanBaseName.toLowerCase())) return cleanBaseName;
-  for (let index = 2; ; index += 1) {
-    const candidate = `${cleanBaseName} ${index}`;
-    if (!normalizedNames.has(candidate.toLowerCase())) return candidate;
-  }
 }
 
 function resizeBoundsFromHandle(state: Extract<DragState, { kind: "resize" }>, clientX: number, clientY: number) {
@@ -654,25 +587,9 @@ function defaultSaveFileName(project: MockupProject, projectPath: string | null)
   return `${encodeTitleForFilename(baseName)}.moq`;
 }
 
-function projectSnapshot(project: MockupProject) {
-  return JSON.stringify(project);
-}
-
-function dirtyProjectSnapshot(project: MockupProject) {
-  return projectSnapshot({ ...project, activeWireframeId: "" });
-}
-
-function createProjectHistory(project: MockupProject): ProjectHistory {
-  return { past: [], present: project, future: [] };
-}
-
-function pushHistoryEntry(past: MockupProject[], project: MockupProject) {
-  return [...past, project].slice(-maxProjectHistoryEntries);
-}
-
 function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [projectHistory, setProjectHistory] = useState<ProjectHistory>(() => createProjectHistory(createDefaultProject()));
+  const [projectHistory, setProjectHistory] = useState<ProjectHistory>(() => createProjectHistory(createDefaultProject(createId)));
   const [appAppearance, setAppAppearance] = useState<MockupProject["appearance"]>(() => {
     const appearance = defaultAppearance();
     appearance.colorScheme = (readStoredValue(themeKey, legacyThemeKey) as MockupProject["appearance"]["colorScheme"]) || appearance.colorScheme;
@@ -863,17 +780,9 @@ function App() {
   const commitProjectChange = useCallback(
     (updater: (project: MockupProject) => MockupProject, options: ProjectChangeOptions = {}) => {
       setProjectHistory((current) => {
-        const nextProject = updater(current.present);
-        if (projectSnapshot(nextProject) === projectSnapshot(current.present)) return current;
-
-        const isSameGroup = Boolean(options.groupKey) && activeProjectHistoryGroupKeyRef.current === options.groupKey;
-        activeProjectHistoryGroupKeyRef.current = options.groupKey ?? null;
-
-        return {
-          past: isSameGroup ? current.past : pushHistoryEntry(current.past, current.present),
-          present: nextProject,
-          future: [],
-        };
+        const result = commitProjectHistoryChange(current, updater, options, activeProjectHistoryGroupKeyRef.current);
+        activeProjectHistoryGroupKeyRef.current = result.groupKey;
+        return result.history;
       });
     },
     [],
@@ -881,30 +790,14 @@ function App() {
 
   const undoProjectChange = useCallback(() => {
     endProjectHistoryGroup();
-    setProjectHistory((current) => {
-      const previous = current.past.at(-1);
-      if (!previous) return current;
-      return {
-        past: current.past.slice(0, -1),
-        present: previous,
-        future: [current.present, ...current.future],
-      };
-    });
+    setProjectHistory(undoProjectHistory);
     setSelectedId(null);
     setStatus("Undid last change");
   }, [endProjectHistoryGroup, setSelectedId]);
 
   const redoProjectChange = useCallback(() => {
     endProjectHistoryGroup();
-    setProjectHistory((current) => {
-      const next = current.future[0];
-      if (!next) return current;
-      return {
-        past: pushHistoryEntry(current.past, current.present),
-        present: next,
-        future: current.future.slice(1),
-      };
-    });
+    setProjectHistory(redoProjectHistory);
     setSelectedId(null);
     setStatus("Redid last change");
   }, [endProjectHistoryGroup, setSelectedId]);
@@ -946,10 +839,7 @@ function App() {
 
   const mutateActiveWireframe = useCallback(
     (updater: (wireframe: Wireframe) => Wireframe, options?: ProjectChangeOptions) => {
-      mutateProject((current) => ({
-        ...current,
-        wireframes: current.wireframes.map((wireframe) => (wireframe.id === current.activeWireframeId ? updater(wireframe) : wireframe)),
-      }), options);
+      mutateProject((current) => updateActiveWireframeInProject(current, updater), options);
     },
     [mutateProject],
   );
@@ -1007,7 +897,7 @@ function App() {
     (id: string, patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => {
       mutateActiveWireframe((wireframe) => ({
         ...wireframe,
-        nodes: wireframe.nodes.map((node) => (node.id === id ? { ...node, ...patch } : node)),
+        nodes: patchNode(wireframe.nodes, id, patch),
       }), options);
     },
     [mutateActiveWireframe],
@@ -1021,7 +911,7 @@ function App() {
         ...current.present,
         wireframes: current.present.wireframes.map((wireframe) =>
           wireframe.id === current.present.activeWireframeId
-            ? { ...wireframe, nodes: wireframe.nodes.map((node) => (node.id === id ? { ...node, ...patch } : node)) }
+            ? { ...wireframe, nodes: patchNode(wireframe.nodes, id, patch) }
             : wireframe,
         ),
       },
@@ -1036,7 +926,7 @@ function App() {
         ...current.present,
         wireframes: current.present.wireframes.map((wireframe) =>
           wireframe.id === current.present.activeWireframeId
-            ? { ...wireframe, nodes: wireframe.nodes.map((node) => (patches[node.id] ? { ...node, ...patches[node.id] } : node)) }
+            ? { ...wireframe, nodes: patchNodes(wireframe.nodes, patches) }
             : wireframe,
         ),
       },
@@ -1151,18 +1041,11 @@ function App() {
   const duplicateNode = useCallback(
     (id?: string | null) => {
       const sourceIds = id ? [id] : selectedIds;
-      const selected = new Set(sourceIds);
-      const nodes = activeWireframe?.nodes.filter((item) => selected.has(item.id)) ?? [];
+      const nodes = selectedNodesInStack(activeWireframe?.nodes ?? [], sourceIds);
       if (!nodes.length) return;
-      const duplicatesById = new Map(nodes.map((node) => [node.id, { ...node, id: createId("node"), x: node.x + 24, y: node.y + 24 }]));
-      mutateActiveWireframe((wireframe) => {
-        const nextNodes = wireframe.nodes.flatMap((item) => {
-          const duplicate = duplicatesById.get(item.id);
-          return duplicate ? [item, duplicate] : [item];
-        });
-        return { ...wireframe, nodes: nextNodes };
-      });
-      selectMany(Array.from(duplicatesById.values()).map((node) => node.id));
+      const result = duplicateNodesInStack(activeWireframe?.nodes ?? [], sourceIds, createId);
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: result.nodes }));
+      selectMany(result.duplicates.map((node) => node.id));
       setStatus(nodes.length === 1 ? `Duplicated ${nodes[0].name}` : `Duplicated ${nodes.length} components`);
     },
     [activeWireframe?.nodes, mutateActiveWireframe, selectMany, selectedIds],
@@ -1171,8 +1054,7 @@ function App() {
   const copyNode = useCallback(
     (id?: string | null) => {
       const sourceIds = id ? [id] : selectedIds;
-      const selected = new Set(sourceIds);
-      const nodes = activeWireframe?.nodes.filter((item) => selected.has(item.id)) ?? [];
+      const nodes = selectedNodesInStack(activeWireframe?.nodes ?? [], sourceIds);
       if (!nodes.length) return;
       setClipboard(nodes);
       setStatus(nodes.length === 1 ? `Copied ${nodes[0].name}` : `Copied ${nodes.length} components`);
@@ -1183,8 +1065,7 @@ function App() {
   const cutNode = useCallback(
     (id?: string | null) => {
       const sourceIds = id ? [id] : selectedIds;
-      const selected = new Set(sourceIds);
-      const nodes = activeWireframe?.nodes.filter((item) => selected.has(item.id)) ?? [];
+      const nodes = selectedNodesInStack(activeWireframe?.nodes ?? [], sourceIds);
       if (!nodes.length) return;
       setClipboard(nodes);
       deleteNode(id);
@@ -1204,17 +1085,7 @@ function App() {
         setStatus("Clipboard is empty");
         return;
       }
-      const minX = Math.min(...clipboard.map((node) => node.x));
-      const minY = Math.min(...clipboard.map((node) => node.y));
-      const offsetX = x === undefined ? 24 : Math.round(x - minX);
-      const offsetY = y === undefined ? 24 : Math.round(y - minY);
-      const nodes = clipboard.map((item) => ({
-        ...item,
-        id: createId("node"),
-        x: Math.round(item.x + offsetX),
-        y: Math.round(item.y + offsetY),
-        name: item.name,
-      }));
+      const nodes = cloneNodesForPaste(clipboard, createId, x === undefined || y === undefined ? undefined : { x, y });
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, ...nodes] }));
       selectMany(nodes.map((node) => node.id));
       setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
@@ -1238,7 +1109,7 @@ function App() {
   }, [addImageNode, interactiveMode]);
 
   const layerNode = useCallback(
-    (id: string | null, action: "front" | "back" | "forward" | "backward") => {
+    (id: string | null, action: LayerAction) => {
       const ids = id ? [id] : selectedIds;
       if (!ids.length) return;
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: moveNodeLayer(wireframe.nodes, ids, action) }));
@@ -1448,7 +1319,7 @@ function App() {
 
   const newProject = useCallback(() => {
     if (!confirmLosingUnsavedChanges()) return;
-    resetProjectHistory(createDefaultProject());
+    resetProjectHistory(createDefaultProject(createId));
     setProjectPath(null);
     setSelectedId(null);
     setStatus("Created new project");
@@ -1785,7 +1656,7 @@ function App() {
         unlockAllNodes();
       }
       if (modifier && event.altKey && !isEditingText) {
-        const layerShortcuts: Record<string, "front" | "back" | "forward" | "backward"> = {
+        const layerShortcuts: Record<string, LayerAction> = {
           ArrowUp: event.shiftKey ? "front" : "forward",
           ArrowDown: event.shiftKey ? "back" : "backward",
         };
@@ -1871,11 +1742,11 @@ function App() {
   }, []);
 
   function addWireframe() {
-    const id = createId("wireframe");
+    const wireframe = createNextWireframe(project.wireframes, createId);
     mutateProject((current) => ({
       ...current,
-      activeWireframeId: id,
-      wireframes: [...current.wireframes, { id, name: uniqueWireframeName(`Wireframe ${current.wireframes.length + 1}`, current.wireframes), background: "white", showGrid: true, nodes: [] }],
+      activeWireframeId: wireframe.id,
+      wireframes: [...current.wireframes, wireframe],
     }));
     setSelectedId(null);
   }
@@ -1883,20 +1754,11 @@ function App() {
   const duplicateWireframe = (wireframeId = activeWireframe?.id) => {
     const sourceWireframe = project.wireframes.find((wireframe) => wireframe.id === wireframeId);
     if (!sourceWireframe) return;
-    const id = createId("wireframe");
+    const wireframe = duplicateWireframeModel(sourceWireframe, project.wireframes, createId);
     mutateProject((current) => ({
       ...current,
-      activeWireframeId: id,
-      wireframes: [
-        ...current.wireframes,
-        {
-          id,
-          name: uniqueWireframeName(`${sourceWireframe.name} copy`, current.wireframes),
-          background: wireframeBackground(sourceWireframe),
-          showGrid: wireframeShowGrid(sourceWireframe),
-          nodes: sourceWireframe.nodes.map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
-        },
-      ],
+      activeWireframeId: wireframe.id,
+      wireframes: [...current.wireframes, wireframe],
     }));
     setSelectedId(null);
   };
@@ -1965,32 +1827,25 @@ function App() {
   };
 
   const createWireframeForLink = useCallback(() => {
-    const id = createId("wireframe");
+    const wireframe = createNextWireframe(project.wireframes, createId);
     mutateProject((current) => ({
       ...current,
-      wireframes: [...current.wireframes, { id, name: uniqueWireframeName(`Wireframe ${current.wireframes.length + 1}`, current.wireframes), background: "white", showGrid: true, nodes: [] }],
+      wireframes: [...current.wireframes, wireframe],
     }));
-    return id;
-  }, [mutateProject]);
+    return wireframe.id;
+  }, [mutateProject, project.wireframes]);
 
   const duplicateWireframeForLink = useCallback(() => {
     const sourceWireframe = activeWireframe;
-    const id = createId("wireframe");
+    const wireframe = sourceWireframe
+      ? duplicateWireframeModel(sourceWireframe, project.wireframes, createId)
+      : createNextWireframe(project.wireframes, createId);
     mutateProject((current) => ({
       ...current,
-      wireframes: [
-        ...current.wireframes,
-        {
-          id,
-          name: uniqueWireframeName(`${sourceWireframe?.name ?? "Wireframe"} copy`, current.wireframes),
-          background: wireframeBackground(sourceWireframe),
-          showGrid: wireframeShowGrid(sourceWireframe),
-          nodes: (sourceWireframe?.nodes ?? []).map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
-        },
-      ],
+      wireframes: [...current.wireframes, wireframe],
     }));
-    return id;
-  }, [activeWireframe, mutateProject]);
+    return wireframe.id;
+  }, [activeWireframe, mutateProject, project.wireframes]);
 
   const effectiveRightCollapsed = rightCollapsed || interactiveMode;
 
@@ -4284,7 +4139,7 @@ function PropertiesPane({
   onWireframeChange: (patch: Partial<Wireframe>) => void;
   onNodeChange: (patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => void;
   onNodeChangeEnd: () => void;
-  onLayer: (action: "front" | "back" | "forward" | "backward") => void;
+  onLayer: (action: LayerAction) => void;
   projectWireframes: Wireframe[];
   onCreateWireframeForLink: () => string;
   onDuplicateWireframeForLink: () => string;
@@ -4352,7 +4207,6 @@ function PropertiesPane({
   const textAlign = selectedNode.textAlign ?? "left";
   const textUnderline = selectedNode.textUnderline ?? selectedNode.kind === "link";
   const textStrikethrough = Boolean(selectedNode.textStrikethrough);
-  const selectedEditableField = editableTextField(selectedNode);
   const genericState = selectedNode.disabled ? "disabled" : "normal";
   const selectedNodeOptions = nodeOptions(selectedNode);
   const canChooseActiveOption = (selectedNode.kind === "dropdown" || selectedNode.kind === "comboBox") && selectedNodeOptions.length > 0;
@@ -4771,7 +4625,7 @@ function ContextMenu({
   onCopy: () => void;
   onPaste: () => void;
   onDelete: () => void;
-  onLayer: (action: "front" | "back" | "forward" | "backward") => void;
+  onLayer: (action: LayerAction) => void;
 }) {
   const disabled = !state.targetId;
   const item = (label: string, action: () => void, isDisabled = false) => (
