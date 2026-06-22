@@ -6,6 +6,7 @@ import {
   duplicateNodesInStack,
   moveNodeLayer,
   pointHitsNode,
+  rectContainsNode,
   rectFromPoints,
   rectIntersectsNode,
 } from "./canvasNodeStack";
@@ -73,6 +74,8 @@ describe("canvasNodeStack", () => {
     expect(pointHitsNode(51, 20, target)).toBe(false);
     expect(rectIntersectsNode({ x: 0, y: 0, width: 15, height: 25 }, target)).toBe(true);
     expect(rectIntersectsNode({ x: 0, y: 0, width: 9, height: 19 }, target)).toBe(false);
+    expect(rectContainsNode({ x: 10, y: 20, width: 40, height: 30 }, target)).toBe(true);
+    expect(rectContainsNode({ x: 0, y: 0, width: 15, height: 25 }, target)).toBe(false);
   });
 
   it("snaps moved nodes to peer left, center, right, top, middle, and bottom guides", () => {

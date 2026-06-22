@@ -48,8 +48,8 @@ import {
   patchNode,
   patchNodes,
   pointHitsNode,
+  rectContainsNode,
   rectFromPoints,
-  rectIntersectsNode,
   selectedNodesInStack,
   type AlignmentSnapGuide,
   type LayerAction,
@@ -695,6 +695,19 @@ function App() {
     };
   }, []);
 
+  const visibleCanvasInsertionPoint = useCallback((width: number, height: number) => {
+    const canvas = canvasRef.current;
+    const scroller = canvas?.parentElement;
+    if (!canvas || !scroller) return { x: 120, y: 120 };
+    const inset = 24;
+    const maxX = Math.max(0, canvas.clientWidth - width);
+    const maxY = Math.max(0, canvas.clientHeight - height);
+    return {
+      x: clamp(Math.round(scroller.scrollLeft + inset), 0, maxX),
+      y: clamp(Math.round(scroller.scrollTop + inset), 0, maxY),
+    };
+  }, []);
+
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
@@ -874,13 +887,16 @@ function App() {
   );
 
   const addNode = useCallback(
-    (kind: ComponentKind, x = 120, y = 120) => {
-      const node = createCanvasNode(kind, Math.round(x), Math.round(y), createId("node"));
+    (kind: ComponentKind, x?: number, y?: number) => {
+      const node = createCanvasNode(kind, 0, 0, createId("node"));
+      const point = x === undefined || y === undefined ? visibleCanvasInsertionPoint(node.width, node.height) : { x: Math.round(x), y: Math.round(y) };
+      node.x = point.x;
+      node.y = point.y;
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
       setSelectedId(node.id);
       setStatus(`Added ${node.name}`);
     },
-    [mutateActiveWireframe, setSelectedId],
+    [mutateActiveWireframe, setSelectedId, visibleCanvasInsertionPoint],
   );
 
   const addArrowNodeFromPoints = useCallback(
@@ -1553,7 +1569,7 @@ function App() {
       if (!selectionRect) return;
       if (selectionRect.moved) {
         const rect = rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY);
-        const hits = (activeWireframe?.nodes ?? []).filter((node) => rectIntersectsNode(rect, node)).map((node) => node.id);
+        const hits = (activeWireframe?.nodes ?? []).filter((node) => rectContainsNode(rect, node)).map((node) => node.id);
         selectMany(selectionRect.additive ? [...selectedIds, ...hits] : hits);
         setStatus(hits.length === 1 ? "Selected 1 component" : `Selected ${hits.length} components`);
         suppressCanvasClickRef.current = true;

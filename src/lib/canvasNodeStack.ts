@@ -43,6 +43,10 @@ export function rectIntersectsNode(rect: CanvasRect, node: CanvasNode) {
   return rect.x <= node.x + node.width && rect.x + rect.width >= node.x && rect.y <= node.y + node.height && rect.y + rect.height >= node.y;
 }
 
+export function rectContainsNode(rect: CanvasRect, node: CanvasNode) {
+  return rect.x <= node.x && rect.y <= node.y && rect.x + rect.width >= node.x + node.width && rect.y + rect.height >= node.y + node.height;
+}
+
 function boundsForNodes(nodes: CanvasNode[], positions: Record<string, { x: number; y: number }>): CanvasRect | null {
   const positioned = nodes.flatMap((node) => {
     const position = positions[node.id];

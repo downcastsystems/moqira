@@ -1788,7 +1788,7 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
 .modal-screen-node {
   width: 100%;
   height: 100%;
-  background: var(--node-fill);
+  background: color-mix(in srgb, var(--node-fill) 62%, transparent);
 }
 
 .fieldset-node {
