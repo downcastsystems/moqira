@@ -941,6 +941,18 @@ function App() {
     [mutateActiveWireframe],
   );
 
+  const updateSelectedNodes = useCallback(
+    (patch: Partial<CanvasNode>, options?: ProjectChangeOptions) => {
+      const ids = new Set(selectedIds);
+      if (!ids.size) return;
+      mutateActiveWireframe((wireframe) => ({
+        ...wireframe,
+        nodes: wireframe.nodes.map((node) => (ids.has(node.id) ? { ...node, ...patch } : node)),
+      }), options);
+    },
+    [mutateActiveWireframe, selectedIds],
+  );
+
   const previewNode = useCallback((id: string, patch: Partial<CanvasNode>) => {
     endProjectHistoryGroup();
     setProjectHistory((current) => ({
@@ -2262,10 +2274,15 @@ function App() {
           <aside className="right-pane">
             <PropertiesPane
               selectedNode={selectedNode}
+              selectedNodes={selectedNodes}
               selectedCount={selectedIds.length}
               activeWireframe={activeWireframe}
               onWireframeChange={updateActiveWireframe}
-              onNodeChange={(patch, options) => selectedNode && updateNode(selectedNode.id, patch, options)}
+              onNodeChange={(patch, options) => {
+                if (!selectedNode) return;
+                if (selectedIds.length > 1) updateSelectedNodes(patch, options);
+                else updateNode(selectedNode.id, patch, options);
+              }}
               onNodeChangeEnd={endProjectHistoryGroup}
               onLayer={(action) => layerNode(null, action)}
               projectWireframes={project.wireframes}
@@ -4266,8 +4283,33 @@ function GeometryNumberInput({
   );
 }
 
+function commonNodePropertyCapabilities(nodes: CanvasNode[]) {
+  const capabilities = nodes.map(nodePropertyCapabilities);
+  const every = (key: keyof ReturnType<typeof nodePropertyCapabilities>) => capabilities.length > 0 && capabilities.every((item) => item[key]);
+  return {
+    isTextNode: every("isTextNode"),
+    isTabs: every("isTabs"),
+    isAccordion: every("isAccordion"),
+    isAlert: every("isAlert"),
+    isAppBar: every("isAppBar"),
+    isButtonBar: every("isButtonBar"),
+    isDataGrid: every("isDataGrid"),
+    isArrow: every("isArrow"),
+    genericTextStyle: every("genericTextStyle"),
+    showGenericState: every("showGenericState"),
+    showGenericBorder: every("showGenericBorder"),
+    showGenericScrollbar: every("showGenericScrollbar"),
+    showGenericOpacity: every("showGenericOpacity"),
+  };
+}
+
+function allNodesHaveProperty(nodes: CanvasNode[], property: keyof CanvasNode) {
+  return nodes.length > 0 && nodes.every((node) => property in node);
+}
+
 function PropertiesPane({
   selectedNode,
+  selectedNodes,
   selectedCount,
   activeWireframe,
   onWireframeChange,
@@ -4279,6 +4321,7 @@ function PropertiesPane({
   onDuplicateWireframeForLink,
 }: {
   selectedNode: CanvasNode | null;
+  selectedNodes: CanvasNode[];
   selectedCount: number;
   activeWireframe: Wireframe | undefined;
   onWireframeChange: (patch: Partial<Wireframe>) => void;
@@ -4331,8 +4374,11 @@ function PropertiesPane({
     );
   }
 
+  const selectionNodes = selectedNodes.length ? selectedNodes : [selectedNode];
+  const isMultiSelection = selectionNodes.length > 1;
+  const selectionKey = selectionNodes.map((node) => node.id).join(",");
   const groupedChange = (property: keyof CanvasNode, patch: Partial<CanvasNode>) => {
-    onNodeChange(patch, { groupKey: `property:${selectedNode.id}:${property}` });
+    onNodeChange(patch, { groupKey: `property:${selectionKey}:${property}` });
   };
   const {
     isTextNode,
@@ -4348,13 +4394,32 @@ function PropertiesPane({
     showGenericBorder,
     showGenericScrollbar,
     showGenericOpacity,
-  } = nodePropertyCapabilities(selectedNode);
+  } = isMultiSelection ? commonNodePropertyCapabilities(selectionNodes) : nodePropertyCapabilities(selectedNode);
+  const hasTextStyleControls = isMultiSelection
+    ? selectionNodes.every((node) => {
+        const capabilities = nodePropertyCapabilities(node);
+        return capabilities.isTextNode || capabilities.genericTextStyle;
+      })
+    : isTextNode || genericTextStyle;
+  const showGenericPaint = selectionNodes.every((node) => {
+    const capabilities = nodePropertyCapabilities(node);
+    return !capabilities.isTextNode && !capabilities.isTabs && !capabilities.isAppBar && !capabilities.isArrow;
+  });
+  const showTextColor = selectionNodes.every((node) => {
+    const capabilities = nodePropertyCapabilities(node);
+    return !capabilities.isTabs && !capabilities.isAppBar && !capabilities.isArrow;
+  });
+  const showChecked = allNodesHaveProperty(selectionNodes, "checked");
+  const showValue = !isMultiSelection && allNodesHaveProperty(selectionNodes, "value");
+  const showPlaceholder = !isMultiSelection && allNodesHaveProperty(selectionNodes, "placeholder");
+  const showTableTextAreas = !isMultiSelection && !isDataGrid;
+  const showSpecializedProperties = !isMultiSelection;
   const textAlign = selectedNode.textAlign ?? "left";
   const textUnderline = selectedNode.textUnderline ?? selectedNode.kind === "link";
   const textStrikethrough = Boolean(selectedNode.textStrikethrough);
   const genericState = selectedNode.disabled ? "disabled" : "normal";
   const selectedNodeOptions = nodeOptions(selectedNode);
-  const canChooseActiveOption = (selectedNode.kind === "dropdown" || selectedNode.kind === "comboBox") && selectedNodeOptions.length > 0;
+  const canChooseActiveOption = !isMultiSelection && (selectedNode.kind === "dropdown" || selectedNode.kind === "comboBox") && selectedNodeOptions.length > 0;
   const selectedActiveIndex = canChooseActiveOption ? clamp(selectedNode.activeIndex ?? 0, 0, selectedNodeOptions.length - 1) : -1;
   const linkableElements = linkableElementsForNode(selectedNode);
   const changeLink = (key: string, link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => {
@@ -4435,7 +4500,7 @@ function PropertiesPane({
           </label>
         </section>
       ) : null}
-      {isTabs ? (
+      {showSpecializedProperties && isTabs ? (
         <>
           <section className="property-section">
             <h3>Border</h3>
@@ -4464,11 +4529,11 @@ function PropertiesPane({
             />
           </label>
         </>
-      ) : isAppBar ? (
+      ) : showSpecializedProperties && isAppBar ? (
         <AppBarProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
-      ) : isArrow ? (
+      ) : showSpecializedProperties && isArrow ? (
         <ArrowProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
-      ) : !isTextNode ? (
+      ) : showGenericPaint ? (
         <>
           <label>
             Fill
@@ -4480,7 +4545,7 @@ function PropertiesPane({
           </label>
         </>
       ) : null}
-      {!isTabs && !isAppBar && !isArrow ? (
+      {showTextColor ? (
         <label className="property-swatch-row">
           Text Color
           <input type="color" value={selectedNode.textColor ?? "#111827"} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("textColor", { textColor: event.target.value })} />
@@ -4499,7 +4564,7 @@ function PropertiesPane({
           />
         </label>
       ) : null}
-      {linkableElements.length ? (
+      {!isMultiSelection && linkableElements.length ? (
         <section className="property-section">
           <div className="property-section-heading">
             <h3>Links</h3>
@@ -4519,50 +4584,54 @@ function PropertiesPane({
           </div>
         </section>
       ) : null}
-      {isButtonBar ? (
+      {showSpecializedProperties && isButtonBar ? (
         <ButtonBarProperties node={selectedNode} onChange={groupedChange} />
       ) : null}
-      {isTabs ? (
+      {showSpecializedProperties && isTabs ? (
         <TabsProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
-      ) : isAccordion ? (
+      ) : showSpecializedProperties && isAccordion ? (
         <AccordionProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
-      ) : isAlert ? (
+      ) : showSpecializedProperties && isAlert ? (
         <AlertProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
-      ) : isAppBar ? (
+      ) : showSpecializedProperties && isAppBar ? (
         <AppBarTextProperties node={selectedNode} onChange={groupedChange} onChangeEnd={onNodeChangeEnd} />
-      ) : isArrow ? null : isTextNode ? (
+      ) : showSpecializedProperties && isArrow ? null : isTextNode ? (
         <>
-          <section className="property-section">
-            <h3>State</h3>
-            <select value={genericState} onChange={(event) => groupedChange("disabled", { disabled: event.target.value === "disabled" || undefined })}>
-              <option value="normal">Normal</option>
-              <option value="disabled">Disabled</option>
-            </select>
-          </section>
-          <section className="property-section">
-            <h3>Text</h3>
-            <div className="text-toolbar">
-              <div className="toolbar-group">
-                <button type="button" className={selectedNode.textBold ? "is-active" : ""} title="Bold" onClick={() => groupedChange("textBold", { textBold: !selectedNode.textBold })}><Bold size={18} /></button>
-                <button type="button" className={selectedNode.textItalic ? "is-active" : ""} title="Italic" onClick={() => groupedChange("textItalic", { textItalic: !selectedNode.textItalic })}><Italic size={18} /></button>
-                <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => groupedChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
-                <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => groupedChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
+          {showGenericState ? (
+            <section className="property-section">
+              <h3>State</h3>
+              <select value={genericState} onChange={(event) => groupedChange("disabled", { disabled: event.target.value === "disabled" || undefined })}>
+                <option value="normal">Normal</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </section>
+          ) : null}
+          {hasTextStyleControls ? (
+            <section className="property-section">
+              <h3>Text</h3>
+              <div className="text-toolbar">
+                <div className="toolbar-group">
+                  <button type="button" className={selectedNode.textBold ? "is-active" : ""} title="Bold" onClick={() => groupedChange("textBold", { textBold: !selectedNode.textBold })}><Bold size={18} /></button>
+                  <button type="button" className={selectedNode.textItalic ? "is-active" : ""} title="Italic" onClick={() => groupedChange("textItalic", { textItalic: !selectedNode.textItalic })}><Italic size={18} /></button>
+                  <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => groupedChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
+                  <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => groupedChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
+                </div>
+                <div className="toolbar-group">
+                  <button type="button" className={textAlign === "left" ? "is-active" : ""} title="Align left" onClick={() => groupedChange("textAlign", { textAlign: "left" })}><AlignLeft size={18} /></button>
+                  <button type="button" className={textAlign === "center" ? "is-active" : ""} title="Align center" onClick={() => groupedChange("textAlign", { textAlign: "center" })}><AlignCenter size={18} /></button>
+                  <button type="button" className={textAlign === "right" ? "is-active" : ""} title="Align right" onClick={() => groupedChange("textAlign", { textAlign: "right" })}><AlignRight size={18} /></button>
+                </div>
+                <GeometryNumberInput
+                  className="font-size-field"
+                  min={8}
+                  max={72}
+                  value={selectedNode.fontSize ?? 14}
+                  onBlur={onNodeChangeEnd}
+                  onChange={(value) => groupedChange("fontSize", { fontSize: value })}
+                />
               </div>
-              <div className="toolbar-group">
-                <button type="button" className={textAlign === "left" ? "is-active" : ""} title="Align left" onClick={() => groupedChange("textAlign", { textAlign: "left" })}><AlignLeft size={18} /></button>
-                <button type="button" className={textAlign === "center" ? "is-active" : ""} title="Align center" onClick={() => groupedChange("textAlign", { textAlign: "center" })}><AlignCenter size={18} /></button>
-                <button type="button" className={textAlign === "right" ? "is-active" : ""} title="Align right" onClick={() => groupedChange("textAlign", { textAlign: "right" })}><AlignRight size={18} /></button>
-              </div>
-              <GeometryNumberInput
-                className="font-size-field"
-                min={8}
-                max={72}
-                value={selectedNode.fontSize ?? 14}
-                onBlur={onNodeChangeEnd}
-                onChange={(value) => groupedChange("fontSize", { fontSize: value })}
-              />
-            </div>
-          </section>
+            </section>
+          ) : null}
         </>
       ) : (
         <>
@@ -4575,13 +4644,13 @@ function PropertiesPane({
               </select>
             </section>
           ) : null}
-          {"checked" in selectedNode ? (
+          {showChecked ? (
             <label className="checkbox-setting">
               <input type="checkbox" checked={Boolean(selectedNode.checked)} onChange={(event) => groupedChange("checked", { checked: event.target.checked })} />
               Checked
             </label>
           ) : null}
-          {genericTextStyle ? (
+          {hasTextStyleControls ? (
             <section className="property-section">
               <h3>Text</h3>
               <div className="text-toolbar arrow-text-toolbar">
@@ -4616,7 +4685,7 @@ function PropertiesPane({
           </select>
         </section>
       ) : null}
-      {"value" in selectedNode ? (
+      {showValue ? (
         <label>
           Value
           <input
@@ -4629,25 +4698,25 @@ function PropertiesPane({
           />
         </label>
       ) : null}
-      {"placeholder" in selectedNode ? (
+      {showPlaceholder ? (
         <label>
           Placeholder
           <input value={selectedNode.placeholder ?? ""} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("placeholder", { placeholder: event.target.value })} />
         </label>
       ) : null}
-      {selectedNode.columns && !isDataGrid ? (
+      {showTableTextAreas && selectedNode.columns ? (
         <label>
           Columns
           <textarea value={selectedNode.columns.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("columns", { columns: event.target.value.split("\n") })} />
         </label>
       ) : null}
-      {selectedNode.rows && !isDataGrid ? (
+      {showTableTextAreas && selectedNode.rows ? (
         <label>
           Rows
           <textarea value={selectedNode.rows.join("\n")} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("rows", { rows: event.target.value.split("\n") })} />
         </label>
       ) : null}
-      {selectedNode.kind === "icon" || selectedNode.kind === "iconText" ? (
+      {!isMultiSelection && (selectedNode.kind === "icon" || selectedNode.kind === "iconText") ? (
         <IconPicker value={selectedNode.icon ?? "Plus"} onChange={(name) => onNodeChange({ icon: name })} />
       ) : null}
       <label className="checkbox-setting">
