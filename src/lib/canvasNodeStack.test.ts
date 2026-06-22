@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../types";
 import {
+  calculateAlignmentSnap,
   cloneNodesForPaste,
   duplicateNodesInStack,
   moveNodeLayer,
@@ -72,5 +73,51 @@ describe("canvasNodeStack", () => {
     expect(pointHitsNode(51, 20, target)).toBe(false);
     expect(rectIntersectsNode({ x: 0, y: 0, width: 15, height: 25 }, target)).toBe(true);
     expect(rectIntersectsNode({ x: 0, y: 0, width: 9, height: 19 }, target)).toBe(false);
+  });
+
+  it("snaps moved nodes to peer left, center, right, top, middle, and bottom guides", () => {
+    const nodes = [node("moving", 10, 20), node("target", 100, 80)];
+
+    expect(
+      calculateAlignmentSnap({
+        nodes,
+        movingIds: ["moving"],
+        originalPositions: { moving: { x: 10, y: 20 } },
+        activeNodeId: "moving",
+        rawX: 59,
+        rawY: 46,
+      }),
+    ).toEqual({
+      deltaX: 50,
+      deltaY: 30,
+      guides: [
+        { axis: "x", position: 100 },
+        { axis: "y", position: 80 },
+      ],
+    });
+  });
+
+  it("snaps moved groups as a unit", () => {
+    const nodes = [node("a", 10, 20), node("b", 70, 20), node("target", 160, 90)];
+
+    expect(
+      calculateAlignmentSnap({
+        nodes,
+        movingIds: ["a", "b"],
+        originalPositions: { a: { x: 10, y: 20 }, b: { x: 70, y: 20 } },
+        activeNodeId: "a",
+        rawX: 54,
+        rawY: 86,
+      }),
+    ).toEqual({
+      deltaX: 50,
+      deltaY: 70,
+      guides: [
+        { axis: "x", position: 160 },
+        { axis: "y", position: 90 },
+        { axis: "y", position: 105 },
+        { axis: "y", position: 120 },
+      ],
+    });
   });
 });

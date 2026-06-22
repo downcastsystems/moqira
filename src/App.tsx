@@ -11,6 +11,7 @@ import {
   BringToFront,
   CheckSquare,
   ChevronDown,
+  ChevronUp,
   CornerUpRight,
   Clipboard,
   Italic,
@@ -40,6 +41,7 @@ import type { LucideIcon } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  calculateAlignmentSnap,
   cloneNodesForPaste,
   duplicateNodesInStack,
   moveNodeLayer,
@@ -49,6 +51,7 @@ import {
   rectFromPoints,
   rectIntersectsNode,
   selectedNodesInStack,
+  type AlignmentSnapGuide,
   type LayerAction,
 } from "./lib/canvasNodeStack";
 import {
@@ -607,7 +610,7 @@ function App() {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [selectionRect, setSelectionRect] = useState<SelectionRectState | null>(null);
   const [arrowDraw, setArrowDraw] = useState<ArrowDrawState | null>(null);
-  const [snapGuides, setSnapGuides] = useState<number[]>([]);
+  const [snapGuides, setSnapGuides] = useState<AlignmentSnapGuide[]>([]);
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const textEditorRef = useRef<TextEditorState | null>(null);
@@ -1076,19 +1079,19 @@ function App() {
 
   const pasteNode = useCallback(
     async (x?: number, y?: number) => {
+      if (clipboard.length) {
+        const nodes = cloneNodesForPaste(clipboard, createId, x === undefined || y === undefined ? undefined : { x, y });
+        mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, ...nodes] }));
+        selectMany(nodes.map((node) => node.id));
+        setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
+        return;
+      }
       const image = await readClipboardImage();
       if (image) {
         addImageNode(image, x, y);
         return;
       }
-      if (!clipboard.length) {
-        setStatus("Clipboard is empty");
-        return;
-      }
-      const nodes = cloneNodesForPaste(clipboard, createId, x === undefined || y === undefined ? undefined : { x, y });
-      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, ...nodes] }));
-      selectMany(nodes.map((node) => node.id));
-      setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
+      setStatus("Clipboard is empty");
     },
     [addImageNode, clipboard, mutateActiveWireframe, selectMany],
   );
@@ -1098,6 +1101,7 @@ function App() {
       if (interactiveMode) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select")) return;
+      if (clipboard.length) return;
       const imageBlob = imageBlobFromDataTransfer(event.clipboardData);
       if (!imageBlob) return;
       event.preventDefault();
@@ -1106,7 +1110,7 @@ function App() {
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [addImageNode, interactiveMode]);
+  }, [addImageNode, clipboard.length, interactiveMode]);
 
   const layerNode = useCallback(
     (id: string | null, action: LayerAction) => {
@@ -1428,34 +1432,27 @@ function App() {
         const rawX = Math.max(0, Math.round(originalPosition.x + event.clientX - dragState.startX));
         const rawY = Math.max(0, Math.round(originalPosition.y + event.clientY - dragState.startY));
         const canvasWidth = canvasRef.current?.clientWidth ?? 0;
-        const threshold = 6;
-        const targets: number[] = [];
-        if (canvasWidth) targets.push(canvasWidth / 2);
-        const draggedIds = new Set(dragState.nodeIds);
-        for (const other of activeWireframe?.nodes ?? []) {
-          if (draggedIds.has(other.id)) continue;
-          targets.push(other.x, other.x + other.width / 2, other.x + other.width);
-        }
-        let best: { x: number; lines: number[]; dist: number } = { x: rawX, lines: [], dist: threshold + 1 };
-        for (const target of targets) {
-          for (const edge of [0, node.width / 2, node.width]) {
-            const snapped = Math.round(target - edge);
-            const dist = Math.abs(snapped - rawX);
-            if (dist < best.dist) best = { x: snapped, lines: [target], dist };
-            else if (dist === best.dist && best.x === snapped && !best.lines.includes(target)) best.lines.push(target);
-          }
-        }
-        const finalX = best.dist <= threshold ? best.x : rawX;
-        const deltaX = finalX - originalPosition.x;
-        const deltaY = rawY - originalPosition.y;
+        const canvasHeight = canvasRef.current?.clientHeight ?? 0;
+        const snap = event.shiftKey
+          ? { deltaX: rawX - originalPosition.x, deltaY: rawY - originalPosition.y, guides: [] }
+          : calculateAlignmentSnap({
+              nodes: activeWireframe?.nodes ?? [],
+              movingIds: dragState.nodeIds,
+              originalPositions: dragState.originalPositions,
+              activeNodeId: node.id,
+              rawX,
+              rawY,
+              canvasWidth,
+              canvasHeight,
+            });
         const patches = Object.fromEntries(
           dragState.nodeIds.flatMap((id) => {
             const position = dragState.originalPositions[id];
-            return position ? [[id, { x: Math.max(0, position.x + deltaX), y: Math.max(0, position.y + deltaY) }]] : [];
+            return position ? [[id, { x: Math.max(0, position.x + snap.deltaX), y: Math.max(0, position.y + snap.deltaY) }]] : [];
           }),
         );
-        setSnapGuides(best.dist <= threshold ? best.lines : []);
-        setDragState({ ...dragState, currentX: finalX, currentY: rawY });
+        setSnapGuides(snap.guides);
+        setDragState({ ...dragState, currentX: originalPosition.x + snap.deltaX, currentY: originalPosition.y + snap.deltaY });
         previewNodes(patches);
       } else {
         const nextBounds = resizeBoundsFromHandle(dragState, event.clientX, event.clientY);
@@ -1585,6 +1582,16 @@ function App() {
       const modifier = event.metaKey || event.ctrlKey;
       const target = event.target as HTMLElement | null;
       const isEditingText = Boolean(target?.closest("input, textarea, select"));
+      if (modifier && event.key.toLowerCase() === "a" && isEditingText) {
+        const element = activeTextInput();
+        if (element) {
+          event.preventDefault();
+          event.stopPropagation();
+          element.select();
+          rememberTextInputSelection(element);
+          return;
+        }
+      }
       if (modifier && event.key.toLowerCase() === "z" && !isEditingText) {
         event.preventDefault();
         if (event.shiftKey) redoProjectChange();
@@ -1630,6 +1637,7 @@ function App() {
       }
       if (modifier && event.key.toLowerCase() === "v" && !isEditingText) {
         if (runEditableClipboardAction("paste")) return;
+        event.preventDefault();
         const pasteToken = Date.now();
         pendingCanvasPasteRef.current = pasteToken;
         window.setTimeout(() => {
@@ -2107,8 +2115,12 @@ function App() {
               }}
               onContextMenu={openCanvasContextMenu}
             >
-              {snapGuides.map((x, index) => (
-                <div key={`guide-${index}-${x}`} className="snap-guide" style={{ left: x }} />
+              {snapGuides.map((guide, index) => (
+                <div
+                  key={`guide-${index}-${guide.axis}-${guide.position}`}
+                  className={`snap-guide snap-guide-${guide.axis}`}
+                  style={guide.axis === "x" ? { left: guide.position } : { top: guide.position }}
+                />
               ))}
               {selectionRect?.moved ? (
                 <div
@@ -3618,6 +3630,13 @@ function FloatingTextEditor({
           const textarea = event.currentTarget;
           const modifier = event.metaKey || event.ctrlKey;
           const key = event.key.toLowerCase();
+          if (modifier && key === "a") {
+            event.preventDefault();
+            event.stopPropagation();
+            textarea.select();
+            rememberTextInputSelection(textarea);
+            return;
+          }
           if (modifier && ["c", "x", "v", "z"].includes(key)) {
             event.preventDefault();
             event.stopPropagation();
@@ -4121,6 +4140,53 @@ function ArrowProperties({
   );
 }
 
+function GeometryNumberInput({
+  value,
+  onChange,
+  onBlur,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  onBlur: () => void;
+}) {
+  const stepValue = (delta: number) => {
+    onChange(value + delta);
+    onBlur();
+  };
+
+  return (
+    <div className="geometry-number-field">
+      <input
+        className="geometry-number-input"
+        type="number"
+        value={value}
+        onBlur={onBlur}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <span className="geometry-number-buttons">
+        <button
+          type="button"
+          tabIndex={-1}
+          title="Increase"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => stepValue(1)}
+        >
+          <ChevronUp size={14} strokeWidth={2.7} />
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          title="Decrease"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => stepValue(-1)}
+        >
+          <ChevronDown size={14} strokeWidth={2.7} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
 function PropertiesPane({
   selectedNode,
   selectedCount,
@@ -4235,22 +4301,22 @@ function PropertiesPane({
         <div className="property-row">
           <strong>Position</strong>
           <label>
-            <input type="number" value={selectedNode.x} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("x", { x: Number(event.target.value) })} />
+            <GeometryNumberInput value={selectedNode.x} onBlur={onNodeChangeEnd} onChange={(value) => groupedChange("x", { x: value })} />
             <span>X</span>
           </label>
           <label>
-            <input type="number" value={selectedNode.y} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("y", { y: Number(event.target.value) })} />
+            <GeometryNumberInput value={selectedNode.y} onBlur={onNodeChangeEnd} onChange={(value) => groupedChange("y", { y: value })} />
             <span>Y</span>
           </label>
         </div>
         <div className="property-row">
           <strong>Size</strong>
           <label>
-            <input type="number" value={selectedNode.width} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("width", { width: Number(event.target.value) })} />
+            <GeometryNumberInput value={selectedNode.width} onBlur={onNodeChangeEnd} onChange={(value) => groupedChange("width", { width: value })} />
             <span>Width</span>
           </label>
           <label>
-            <input type="number" value={selectedNode.height} onBlur={onNodeChangeEnd} onChange={(event) => groupedChange("height", { height: Number(event.target.value) })} />
+            <GeometryNumberInput value={selectedNode.height} onBlur={onNodeChangeEnd} onChange={(value) => groupedChange("height", { height: value })} />
             <span>Height</span>
           </label>
         </div>

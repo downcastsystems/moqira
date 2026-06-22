@@ -54,6 +54,19 @@ textarea {
   font: inherit;
 }
 
+input[type="number"] {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] input[type="number"] {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] input[type="number"]::-webkit-inner-spin-button,
+html[data-theme="dark"] input[type="number"]::-webkit-outer-spin-button {
+  filter: invert(1) brightness(1.25);
+}
+
 button {
   color: inherit;
 }
@@ -556,12 +569,21 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
 
 .snap-guide {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
   background: #ff3b30;
   pointer-events: none;
   z-index: 10;
+}
+
+.snap-guide-x {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.snap-guide-y {
+  left: 0;
+  right: 0;
+  height: 1px;
 }
 
 .selection-marquee {
@@ -2640,6 +2662,66 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
 
 .property-row label span {
   font-weight: 500;
+}
+
+.geometry-number-field {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+.properties input.geometry-number-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  padding-right: 34px;
+}
+
+.properties input.geometry-number-input::-webkit-inner-spin-button,
+.properties input.geometry-number-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.geometry-number-buttons {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  bottom: 5px;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  width: 20px;
+  pointer-events: none;
+}
+
+.geometry-number-buttons button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  width: 20px;
+  height: 15px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.geometry-number-buttons button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.geometry-number-buttons button:active {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.geometry-number-buttons svg {
+  display: block;
 }
 
 .property-swatch-row {

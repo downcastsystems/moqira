@@ -52,7 +52,7 @@ export const controlCatalogue: ComponentDefinition[] = [
     text: "A **paragraph** of {color:red}text{color} with an [unassigned link].\nA *second* <u>row</u> of ~~text~~ with a [web link]\nAn icon :circle-plus-solid: inline with text.",
     fontSize: 13,
   }),
-  component("link", "Link", ["Common", "Text"], "Link", 120, 34, { text: "a link", textColor: "#2563eb", fontSize: 24 }),
+  component("link", "Link", ["Common", "Text"], "Link", 120, 34, { text: "a link", textColor: "#2563eb", fontSize: 13 }),
   component("squigglyParagraph", "Squiggly Paragraph", ["Common", "Text"], "AlignLeft", 250, 86, { text: "A paragraph of text.\nA second row of text." }),
 
   component("checkbox", "Checkbox", ["Common", "Forms"], "checkbox", 150, 32, { text: "Checkbox", checked: false }),
