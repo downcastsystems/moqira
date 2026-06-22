@@ -363,6 +363,8 @@ button:disabled {
   gap: 2px;
   padding: 8px;
   overflow-y: auto;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .wireframe-row {
@@ -836,13 +838,32 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
   border-color: color-mix(in srgb, var(--node-stroke) 42%, var(--node-fill));
 }
 
-.radio-node,
 .checkbox-node {
   padding: 0 4px;
 }
 
+.radio-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 0 8px;
+  cursor: grab;
+  line-height: 1.15;
+}
+
+.radio-node > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 1.15em;
+  line-height: 1.15;
+}
+
 .radio-dot {
-  display: inline-block;
+  display: inline-flex;
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
   border: 2px solid var(--node-stroke);
@@ -2124,7 +2145,112 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
   background: conic-gradient(color-mix(in srgb, var(--accent) 35%, var(--node-fill)) 0 35%, var(--node-fill) 35% 100%);
 }
 
-.scrollbar-node,
+.scrollbar-node {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  border: 2px solid var(--node-stroke);
+  background: var(--node-fill);
+  overflow: hidden;
+}
+
+.scrollbar-node.vScrollBar {
+  grid-template-rows: minmax(18px, 13%) minmax(0, 1fr) minmax(18px, 13%);
+}
+
+.scrollbar-node.hScrollBar {
+  grid-template-columns: minmax(18px, 13%) minmax(0, 1fr) minmax(18px, 13%);
+}
+
+.scrollbar-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--node-fill) 88%, var(--node-stroke));
+}
+
+.scrollbar-node.vScrollBar .scrollbar-button {
+  border-bottom: 2px solid var(--node-stroke);
+}
+
+.scrollbar-node.vScrollBar .scrollbar-button-end {
+  border-top: 2px solid var(--node-stroke);
+  border-bottom: 0;
+}
+
+.scrollbar-node.hScrollBar .scrollbar-button {
+  border-right: 2px solid var(--node-stroke);
+}
+
+.scrollbar-node.hScrollBar .scrollbar-button-end {
+  border-right: 0;
+  border-left: 2px solid var(--node-stroke);
+}
+
+.scrollbar-button::before {
+  content: "";
+  display: block;
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+}
+
+.scrollbar-node.vScrollBar .scrollbar-button-start::before {
+  border-bottom-color: var(--node-stroke);
+  transform: translateY(-2px);
+}
+
+.scrollbar-node.vScrollBar .scrollbar-button-end::before {
+  border-top-color: var(--node-stroke);
+  transform: translateY(2px);
+}
+
+.scrollbar-node.hScrollBar .scrollbar-button-start::before {
+  border-right-color: var(--node-stroke);
+  transform: translateX(-2px);
+}
+
+.scrollbar-node.hScrollBar .scrollbar-button-end::before {
+  border-left-color: var(--node-stroke);
+  transform: translateX(2px);
+}
+
+.scrollbar-track {
+  position: relative;
+  display: block;
+  background:
+    linear-gradient(color-mix(in srgb, var(--node-stroke) 18%, transparent), color-mix(in srgb, var(--node-stroke) 18%, transparent)) center / 1px 100% no-repeat,
+    var(--node-fill);
+}
+
+.scrollbar-node.hScrollBar .scrollbar-track {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--node-stroke) 18%, transparent), color-mix(in srgb, var(--node-stroke) 18%, transparent)) center / 100% 1px no-repeat,
+    var(--node-fill);
+}
+
+.scrollbar-thumb {
+  position: absolute;
+  border: 2px solid var(--node-stroke);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--node-stroke) 88%, var(--node-fill));
+}
+
+.scrollbar-node.vScrollBar .scrollbar-thumb {
+  top: 42%;
+  left: 3px;
+  right: 3px;
+  height: clamp(22px, 16%, 42px);
+}
+
+.scrollbar-node.hScrollBar .scrollbar-thumb {
+  top: 3px;
+  bottom: 3px;
+  left: 42%;
+  width: clamp(22px, 16%, 42px);
+}
+
 .slider-node {
   display: grid;
   place-items: center;
@@ -2132,7 +2258,6 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
   height: 100%;
 }
 
-.scrollbar-node::before,
 .slider-node span {
   content: "";
   display: block;
@@ -2142,13 +2267,11 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
   background: var(--node-fill);
 }
 
-.scrollbar-node.vScrollBar::before,
 .slider-node.vSlider span {
   width: 6px;
   height: 100%;
 }
 
-.scrollbar-node span,
 .slider-node i {
   position: absolute;
   width: 32px;
@@ -2671,14 +2794,16 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
   width: 100%;
 }
 
-.properties input.geometry-number-input {
+.properties input.geometry-number-input,
+.setting-row input.geometry-number-input,
+.floating-text-toolbar input.geometry-number-input {
   appearance: textfield;
   -moz-appearance: textfield;
   padding-right: 34px;
 }
 
-.properties input.geometry-number-input::-webkit-inner-spin-button,
-.properties input.geometry-number-input::-webkit-outer-spin-button {
+.geometry-number-input::-webkit-inner-spin-button,
+.geometry-number-input::-webkit-outer-spin-button {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
@@ -2722,6 +2847,14 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
 
 .geometry-number-buttons svg {
   display: block;
+}
+
+.floating-text-toolbar .geometry-number-buttons button {
+  color: #111827;
+}
+
+.settings-font-size-field {
+  width: 100%;
 }
 
 .property-swatch-row {

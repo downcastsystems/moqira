@@ -40,12 +40,12 @@ export const controlCatalogue: ComponentDefinition[] = [
   component("pointyButton", "Pointy Button", "Forms", "ChevronLeft", 150, 44, { text: "Button", fill: "#ffffff", variant: "left", showBorder: false }),
   component("multilineButton", "Multiline Button", "Forms", "MousePointer2", 170, 54, { text: "Multiline Button\nSecond line of text", fill: "#ffffff" }),
   component("helpButton", "Help Button", "Forms", "CircleHelp", 60, 60, { text: "?", fill: "#ffffff", fontSize: 30 }),
-  component("icon", "Icon", ["Common", "Media"], "icon", 64, 64, { icon: "Plus", textColor: "#111827" }),
-  component("iconText", "Icon and Text", ["Common", "Media"], "BadgeInfo", 110, 90, { icon: "Square", text: "Icon Name", textColor: "#111827" }),
+  component("icon", "Icon", ["Common", "Media"], "icon", 64, 64, { icon: "Plus", stroke: "#111827", textColor: "#111827" }),
+  component("iconText", "Icon and Text", ["Common", "Media"], "BadgeInfo", 110, 90, { icon: "Square", text: "Icon Name", stroke: "#111827", textColor: "#111827" }),
   component("stickyNote", "Comment", "Markup", "stickyNote", 180, 160, { text: "A comment", fill: "#fff2a8", fontSize: 16 }),
   component("stickyNote", "Sticky Note", "Markup", "stickyNote", 180, 160, { text: "A sticky note", fill: "#fff2a8", fontSize: 16 }),
 
-  component("textLabel", "Label", ["Common", "Text"], "Type", 180, 34, { text: "Some text", fontSize: 18 }),
+  component("textLabel", "Label", ["Common", "Text"], "Type", 180, 34, { text: "Some text", fontSize: 13 }),
   component("textTitle", "Title", "Text", "Heading1", 240, 48, { text: "A Big Title", fontSize: 28 }),
   component("textSubtitle", "Text Subtitle", "Text", "Heading2", 220, 42, { text: "A Subtitle", fontSize: 22 }),
   component("textParagraph", "Paragraph", ["Common", "Text"], "Pilcrow", 275, 80, {
@@ -68,7 +68,7 @@ export const controlCatalogue: ComponentDefinition[] = [
     ],
     text: "Checkbox List",
   }),
-  component("radioButton", "Radio Button", ["Common", "Forms"], "CircleDot", 160, 32, { text: "Radio Button", checked: false }),
+  component("radioButton", "Radio Button", ["Common", "Forms"], "CircleDot", 160, 28, { text: "Radio Button", checked: false, fontSize: 13 }),
   component("radioButtonGroup", "Radio Button Group", ["Common", "Forms"], "ListChecks", 210, 126, { options: ["option 1", "option 2", "option 3"], text: "Radio Group" }),
   component("dropdown", "Dropdown", "Forms", "dropdown", 180, 40, { text: "Choose...", options: ["First", "Second", "Third"] }),
   component("comboBox", "ComboBox", ["Common", "Forms"], "ChevronDownSquare", 180, 40, { text: "ComboBox", options: ["First", "Second", "Third"], showScrollbar: true }),
@@ -304,6 +304,8 @@ export function editableTextField(node: CanvasNode): "text" | "options" | "value
     "dateChooser",
     "fieldSet",
     "hCurlyBrace",
+    "icon",
+    "iconText",
     "image",
     "link",
     "multilineButton",
@@ -420,7 +422,7 @@ export function extractMarkdownLinks(text: string) {
 
 export function linkableElementsForNode(node: CanvasNode): LinkableElement[] {
   const whole = { key: "whole", label: "Whole Control" };
-  if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton", "image", "checkbox", "comboBox", "radioButton", "searchBox", "onOffSwitch", "textArea"].includes(node.kind)) return [whole];
+  if (["button", "circleButton", "pointyButton", "multilineButton", "helpButton", "icon", "iconText", "image", "checkbox", "comboBox", "radioButton", "searchBox", "onOffSwitch", "textArea"].includes(node.kind)) return [whole];
   if (node.kind === "datePicker") return ["CANCEL", "OK"].map((label, index) => ({ key: linkKeyForIndex("item", label, index), label }));
   if (node.kind === "dataGrid") return [{ key: "text:data-grid-docs", label: "Data Grid Docs" }];
   if (node.kind === "checkboxList" || node.kind === "radioButtonGroup") {
@@ -473,6 +475,8 @@ export function nodePropertyCapabilities(node: CanvasNode) {
     "dateChooser",
     "fieldSet",
     "hCurlyBrace",
+    "icon",
+    "iconText",
     "image",
     "linkBar",
     "multilineButton",

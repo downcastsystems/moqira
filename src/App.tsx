@@ -264,6 +264,8 @@ type ClipboardImage = {
   height: number;
 };
 
+const internalClipboardMarker = "application/x-moqira-component-clipboard";
+
 type MenuActions = {
   newProject: () => void;
   newWireframe: () => void;
@@ -504,6 +506,23 @@ async function readClipboardImage(): Promise<ClipboardImage | null> {
     return null;
   }
   return null;
+}
+
+function internalClipboardMarkerText(count: number) {
+  return `${internalClipboardMarker}; count=${count}`;
+}
+
+async function systemClipboardHasInternalMarker() {
+  try {
+    const text = await navigator.clipboard?.readText();
+    return typeof text === "string" && text.startsWith(internalClipboardMarker);
+  } catch {
+    return false;
+  }
+}
+
+function writeInternalClipboardMarker(count: number) {
+  void navigator.clipboard?.writeText(internalClipboardMarkerText(count)).catch(() => undefined);
 }
 
 function imageBlobFromDataTransfer(dataTransfer: DataTransfer | null): { blob: Blob; mimeType: string } | null {
@@ -1060,6 +1079,7 @@ function App() {
       const nodes = selectedNodesInStack(activeWireframe?.nodes ?? [], sourceIds);
       if (!nodes.length) return;
       setClipboard(nodes);
+      writeInternalClipboardMarker(nodes.length);
       setStatus(nodes.length === 1 ? `Copied ${nodes[0].name}` : `Copied ${nodes.length} components`);
     },
     [activeWireframe?.nodes, selectedIds],
@@ -1071,19 +1091,29 @@ function App() {
       const nodes = selectedNodesInStack(activeWireframe?.nodes ?? [], sourceIds);
       if (!nodes.length) return;
       setClipboard(nodes);
+      writeInternalClipboardMarker(nodes.length);
       deleteNode(id);
       setStatus(nodes.length === 1 ? `Cut ${nodes[0].name}` : `Cut ${nodes.length} components`);
     },
     [activeWireframe?.nodes, deleteNode, selectedIds],
   );
 
+  const pasteClipboardNodes = useCallback(
+    (x?: number, y?: number) => {
+      if (!clipboard.length) return false;
+      const nodes = cloneNodesForPaste(clipboard, createId, x === undefined || y === undefined ? undefined : { x, y });
+      mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, ...nodes] }));
+      selectMany(nodes.map((node) => node.id));
+      setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
+      return true;
+    },
+    [clipboard, mutateActiveWireframe, selectMany],
+  );
+
   const pasteNode = useCallback(
     async (x?: number, y?: number) => {
-      if (clipboard.length) {
-        const nodes = cloneNodesForPaste(clipboard, createId, x === undefined || y === undefined ? undefined : { x, y });
-        mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, ...nodes] }));
-        selectMany(nodes.map((node) => node.id));
-        setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
+      if (clipboard.length && await systemClipboardHasInternalMarker()) {
+        pasteClipboardNodes(x, y);
         return;
       }
       const image = await readClipboardImage();
@@ -1091,9 +1121,10 @@ function App() {
         addImageNode(image, x, y);
         return;
       }
+      if (pasteClipboardNodes(x, y)) return;
       setStatus("Clipboard is empty");
     },
-    [addImageNode, clipboard, mutateActiveWireframe, selectMany],
+    [addImageNode, clipboard.length, pasteClipboardNodes],
   );
 
   useEffect(() => {
@@ -1101,7 +1132,13 @@ function App() {
       if (interactiveMode) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select")) return;
-      if (clipboard.length) return;
+      const marker = event.clipboardData?.getData("text/plain");
+      if (clipboard.length && marker?.startsWith(internalClipboardMarker)) {
+        event.preventDefault();
+        pendingCanvasPasteRef.current = null;
+        pasteClipboardNodes();
+        return;
+      }
       const imageBlob = imageBlobFromDataTransfer(event.clipboardData);
       if (!imageBlob) return;
       event.preventDefault();
@@ -1110,7 +1147,7 @@ function App() {
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [addImageNode, clipboard.length, interactiveMode]);
+  }, [addImageNode, clipboard.length, interactiveMode, pasteClipboardNodes]);
 
   const layerNode = useCallback(
     (id: string | null, action: LayerAction) => {
@@ -1637,14 +1674,13 @@ function App() {
       }
       if (modifier && event.key.toLowerCase() === "v" && !isEditingText) {
         if (runEditableClipboardAction("paste")) return;
-        event.preventDefault();
         const pasteToken = Date.now();
         pendingCanvasPasteRef.current = pasteToken;
         window.setTimeout(() => {
           if (pendingCanvasPasteRef.current !== pasteToken) return;
           pendingCanvasPasteRef.current = null;
           void pasteNode();
-        }, 0);
+        }, 80);
         return;
       }
       if (modifier && event.key.toLowerCase() === "d" && !isEditingText) {
@@ -2050,6 +2086,10 @@ function App() {
                 type="button"
                 className={wireframe.id === activeWireframe?.id ? "wireframe-row is-active" : "wireframe-row"}
                 onClick={() => selectWireframe(wireframe.id)}
+                onDoubleClick={() => {
+                  selectWireframe(wireframe.id);
+                  beginRenameWireframe(wireframe.id);
+                }}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -3310,7 +3350,7 @@ function ChartVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "chartPie") return <div className="chart-pie-node" />;
   if (node.kind === "chartLine") return <div className="chart-line-node"><span /><span /><span /></div>;
   if (node.kind === "chartBar" || node.kind === "chartColumn") return <div className={`chart-bars-node ${node.kind}`}>{[58, 82, 42, 68].map((value) => <span key={value} style={{ "--bar-value": `${value}%` } as React.CSSProperties} />)}</div>;
-  if (node.kind === "hScrollBar" || node.kind === "vScrollBar") return <div className={`scrollbar-node ${node.kind}`}><span /></div>;
+  if (node.kind === "hScrollBar" || node.kind === "vScrollBar") return <div className={`scrollbar-node ${node.kind}`}><span className="scrollbar-button scrollbar-button-start" /><span className="scrollbar-track" /><span className="scrollbar-thumb" /><span className="scrollbar-button scrollbar-button-end" /></div>;
   if (node.kind === "hSlider" || node.kind === "vSlider" || node.kind === "volumeSlider") return <div className={`slider-node ${node.kind}`}><span /><i style={{ "--slider-value": `${nodePercent(node)}%` } as React.CSSProperties} /></div>;
   return null;
 }
@@ -3426,14 +3466,23 @@ function MarkupVisual({ node }: { node: CanvasNode }) {
   return null;
 }
 
+function iconPaint(node: CanvasNode) {
+  return {
+    fill: node.fill ?? "none",
+    stroke: node.stroke ?? node.fill ?? node.textColor ?? "#111827",
+  };
+}
+
 function MediaVisual({ node }: { node: CanvasNode }) {
   if (node.kind === "icon") {
     const Icon = getLucideIcon(node.icon);
-    return <Icon className="icon-node" data-link-key="whole" size={Math.max(12, Math.min(node.width, node.height) - 14)} />;
+    const paint = iconPaint(node);
+    return <Icon className="icon-node" data-link-key="whole" color={paint.stroke} fill={paint.fill} size={Math.max(12, Math.min(node.width, node.height) - 14)} />;
   }
   if (node.kind === "iconText") {
     const Icon = getLucideIcon(node.icon);
-    return <div className="icon-text-node" data-link-key="whole"><Icon size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</span></div>;
+    const paint = iconPaint(node);
+    return <div className="icon-text-node" data-link-key="whole"><Icon color={paint.stroke} fill={paint.fill} size={Math.max(22, Math.min(node.width, node.height) / 2)} /><span className={textFormatClassName(node)}>{renderInlineFormatting(node.text ?? "")}</span></div>;
   }
   if (node.kind === "image") {
     if (node.imageDataUrl) {
@@ -3599,13 +3648,13 @@ function FloatingTextEditor({
             <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onMouseDown={(event) => event.preventDefault()} onClick={() => toggleFormat({ textUnderline: !textUnderline })}><Underline size={16} /></button>
             <button type="button" className={node.textStrikethrough ? "is-active" : ""} title="Strikethrough" onMouseDown={(event) => event.preventDefault()} onClick={() => toggleFormat({ textStrikethrough: !node.textStrikethrough })}><Strikethrough size={16} /></button>
           </div>
-          <input
-            type="number"
+          <GeometryNumberInput
+            className="floating-font-size-field"
             min={8}
             max={72}
-            value={node.fontSize ?? 14}
             title="Font size"
-            onChange={(event) => onFormatChange({ fontSize: Number(event.target.value) })}
+            value={node.fontSize ?? 14}
+            onChange={(value) => onFormatChange({ fontSize: value })}
           />
         </div>
       ) : null}
@@ -3832,13 +3881,13 @@ function TabsProperties({
             <button type="button" className={node.textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !node.textUnderline })}><Underline size={18} /></button>
             <button type="button" className={node.textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !node.textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
-          <input
-            type="number"
+          <GeometryNumberInput
+            className="font-size-field"
             min={8}
             max={72}
             value={node.fontSize ?? 14}
             onBlur={onChangeEnd}
-            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+            onChange={(value) => onChange("fontSize", { fontSize: value })}
           />
         </div>
       </section>
@@ -3897,13 +3946,13 @@ function AccordionProperties({
             <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
             <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
-          <input
-            type="number"
+          <GeometryNumberInput
+            className="font-size-field"
             min={8}
             max={72}
             value={node.fontSize ?? 14}
             onBlur={onChangeEnd}
-            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+            onChange={(value) => onChange("fontSize", { fontSize: value })}
           />
         </div>
       </section>
@@ -3951,13 +4000,13 @@ function AlertProperties({
             <button type="button" className={textAlign === "center" ? "is-active" : ""} title="Align center" onClick={() => onChange("textAlign", { textAlign: "center" })}><AlignCenter size={18} /></button>
             <button type="button" className={textAlign === "right" ? "is-active" : ""} title="Align right" onClick={() => onChange("textAlign", { textAlign: "right" })}><AlignRight size={18} /></button>
           </div>
-          <input
-            type="number"
+          <GeometryNumberInput
+            className="font-size-field"
             min={8}
             max={72}
             value={node.fontSize ?? 14}
             onBlur={onChangeEnd}
-            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+            onChange={(value) => onChange("fontSize", { fontSize: value })}
           />
         </div>
       </section>
@@ -4022,14 +4071,13 @@ function AppBarTextProperties({
             <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
             <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
-          <input
-            className="compact-number-input"
-            type="number"
+          <GeometryNumberInput
+            className="font-size-field"
             min={8}
             max={72}
             value={node.fontSize ?? 16}
             onBlur={onChangeEnd}
-            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+            onChange={(value) => onChange("fontSize", { fontSize: value })}
           />
         </div>
       </section>
@@ -4126,13 +4174,13 @@ function ArrowProperties({
             <button type="button" className={node.textUnderline ? "is-active" : ""} title="Underline" onClick={() => onChange("textUnderline", { textUnderline: !node.textUnderline })}><Underline size={18} /></button>
             <button type="button" className={node.textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => onChange("textStrikethrough", { textStrikethrough: !node.textStrikethrough })}><Strikethrough size={18} /></button>
           </div>
-          <input
-            type="number"
+          <GeometryNumberInput
+            className="font-size-field"
             min={8}
             max={72}
             value={node.fontSize ?? 14}
             onBlur={onChangeEnd}
-            onChange={(event) => onChange("fontSize", { fontSize: Number(event.target.value) })}
+            onChange={(value) => onChange("fontSize", { fontSize: value })}
           />
         </div>
       </section>
@@ -4143,22 +4191,37 @@ function ArrowProperties({
 function GeometryNumberInput({
   value,
   onChange,
-  onBlur,
+  onBlur = () => {},
+  min,
+  max,
+  title,
+  className,
 }: {
   value: number;
   onChange: (value: number) => void;
-  onBlur: () => void;
+  onBlur?: () => void;
+  min?: number;
+  max?: number;
+  title?: string;
+  className?: string;
 }) {
+  const clampValue = (nextValue: number) => {
+    if (!Number.isFinite(nextValue)) return value;
+    return clamp(nextValue, min ?? Number.NEGATIVE_INFINITY, max ?? Number.POSITIVE_INFINITY);
+  };
   const stepValue = (delta: number) => {
-    onChange(value + delta);
+    onChange(clampValue(value + delta));
     onBlur();
   };
 
   return (
-    <div className="geometry-number-field">
+    <div className={["geometry-number-field", className].filter(Boolean).join(" ")}>
       <input
         className="geometry-number-input"
         type="number"
+        min={min}
+        max={max}
+        title={title}
         value={value}
         onBlur={onBlur}
         onChange={(event) => onChange(Number(event.target.value))}
@@ -4474,13 +4537,13 @@ function PropertiesPane({
                 <button type="button" className={textAlign === "center" ? "is-active" : ""} title="Align center" onClick={() => groupedChange("textAlign", { textAlign: "center" })}><AlignCenter size={18} /></button>
                 <button type="button" className={textAlign === "right" ? "is-active" : ""} title="Align right" onClick={() => groupedChange("textAlign", { textAlign: "right" })}><AlignRight size={18} /></button>
               </div>
-              <input
-                type="number"
+              <GeometryNumberInput
+                className="font-size-field"
                 min={8}
                 max={72}
                 value={selectedNode.fontSize ?? 14}
                 onBlur={onNodeChangeEnd}
-                onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
+                onChange={(value) => groupedChange("fontSize", { fontSize: value })}
               />
             </div>
           </section>
@@ -4496,6 +4559,12 @@ function PropertiesPane({
               </select>
             </section>
           ) : null}
+          {"checked" in selectedNode ? (
+            <label className="checkbox-setting">
+              <input type="checkbox" checked={Boolean(selectedNode.checked)} onChange={(event) => groupedChange("checked", { checked: event.target.checked })} />
+              Checked
+            </label>
+          ) : null}
           {genericTextStyle ? (
             <section className="property-section">
               <h3>Text</h3>
@@ -4506,25 +4575,19 @@ function PropertiesPane({
                   <button type="button" className={textUnderline ? "is-active" : ""} title="Underline" onClick={() => groupedChange("textUnderline", { textUnderline: !textUnderline })}><Underline size={18} /></button>
                   <button type="button" className={textStrikethrough ? "is-active" : ""} title="Strikethrough" onClick={() => groupedChange("textStrikethrough", { textStrikethrough: !textStrikethrough })}><Strikethrough size={18} /></button>
                 </div>
-                <input
-                  type="number"
+                <GeometryNumberInput
+                  className="font-size-field"
                   min={8}
                   max={72}
                   value={selectedNode.fontSize ?? 14}
                   onBlur={onNodeChangeEnd}
-                  onChange={(event) => groupedChange("fontSize", { fontSize: Number(event.target.value) })}
+                  onChange={(value) => groupedChange("fontSize", { fontSize: value })}
                 />
               </div>
             </section>
           ) : null}
         </>
       )}
-      {"checked" in selectedNode ? (
-        <label className="checkbox-setting">
-          <input type="checkbox" checked={Boolean(selectedNode.checked)} onChange={(event) => groupedChange("checked", { checked: event.target.checked })} />
-          Checked
-        </label>
-      ) : null}
       {canChooseActiveOption ? (
         <section className="property-section">
           <h3>Selection</h3>
@@ -4642,12 +4705,12 @@ function SettingsDialog({
               <span>
                 <strong>App font size</strong>
               </span>
-              <input
-                type="number"
+              <GeometryNumberInput
+                className="settings-font-size-field"
                 min={12}
                 max={18}
                 value={appAppearance.appFontSize}
-                onChange={(event) => onAppearanceChange({ appFontSize: Number(event.target.value) })}
+                onChange={(value) => onAppearanceChange({ appFontSize: value })}
               />
             </div>
             <div className="setting-row">

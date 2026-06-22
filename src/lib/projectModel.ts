@@ -76,7 +76,7 @@ export function duplicateWireframe(sourceWireframe: Wireframe, wireframes: Wiref
     name: uniqueWireframeName(`${sourceWireframe.name} copy`, wireframes),
     background: wireframeBackground(sourceWireframe),
     showGrid: wireframeShowGrid(sourceWireframe),
-    nodes: sourceWireframe.nodes.map((node) => ({ ...node, id: createId("node"), x: node.x + 20, y: node.y + 20 })),
+    nodes: sourceWireframe.nodes.map((node) => ({ ...node, id: createId("node") })),
   };
 }
 

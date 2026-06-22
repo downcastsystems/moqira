@@ -77,7 +77,7 @@ describe("projectModel", () => {
     expect(uniqueWireframeName("Checkout", wireframes)).toBe("Checkout");
   });
 
-  it("duplicates a Wireframe with copied Canvas Nodes and default fallbacks", () => {
+  it("duplicates a Wireframe with copied Canvas Nodes at the original positions and default fallbacks", () => {
     const source = { ...wireframe("source", "Checkout", [node("node-a")]), background: undefined, showGrid: undefined };
     const duplicate = duplicateWireframe(source, [source], idFactory());
 
@@ -89,8 +89,8 @@ describe("projectModel", () => {
       {
         ...node("node-2"),
         name: "node-a",
-        x: 30,
-        y: 40,
+        x: 10,
+        y: 20,
       },
     ]);
   });
