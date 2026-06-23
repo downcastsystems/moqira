@@ -639,7 +639,6 @@ function App() {
   const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const textEditorRef = useRef<TextEditorState | null>(null);
-  const [status, setStatus] = useState("Ready");
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -833,14 +832,12 @@ function App() {
     endProjectHistoryGroup();
     setProjectHistory(undoProjectHistory);
     setSelectedId(null);
-    setStatus("Undid last change");
   }, [endProjectHistoryGroup, setSelectedId]);
 
   const redoProjectChange = useCallback(() => {
     endProjectHistoryGroup();
     setProjectHistory(redoProjectHistory);
     setSelectedId(null);
-    setStatus("Redid last change");
   }, [endProjectHistoryGroup, setSelectedId]);
 
   useEffect(() => {
@@ -855,7 +852,6 @@ function App() {
       })
       .then((loadedProject) => {
         if (!loadedProject) {
-          setStatus("Ready");
           return;
         }
         const projectName = projectNameFromPath(loadedProject.rememberedPath);
@@ -866,11 +862,9 @@ function App() {
         localStorage.setItem(projectPathKey, loadedProject.rememberedPath);
         void writeLastProjectPath(loadedProject.rememberedPath);
         setRecentProjects((current) => addRecentProject(current, loadedProject.rememberedPath, projectName));
-        setStatus(`Opened ${projectName}`);
       })
       .catch((error) => {
         console.warn("Could not reopen last project", error);
-        setStatus("Could not reopen last project.");
       });
   }, [resetProjectHistory, setSelectedId]);
 
@@ -900,7 +894,6 @@ function App() {
       node.y = point.y;
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
       setSelectedId(node.id);
-      setStatus(`Added ${node.name}`);
     },
     [mutateActiveWireframe, setSelectedId, visibleCanvasInsertionPoint],
   );
@@ -910,7 +903,6 @@ function App() {
       const node = createArrowNodeFromPoints(start, end);
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
       setSelectedId(node.id);
-      setStatus("Drew arrow");
       return node;
     },
     [mutateActiveWireframe, setSelectedId],
@@ -931,7 +923,6 @@ function App() {
       };
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, node] }));
       setSelectedId(node.id);
-      setStatus("Pasted image");
       return node;
     },
     [mutateActiveWireframe, pastePointForSize, setSelectedId],
@@ -1089,7 +1080,6 @@ function App() {
       const deleted = new Set(ids);
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: wireframe.nodes.filter((node) => !deleted.has(node.id)) }));
       setSelectedIds((current) => current.filter((item) => !deleted.has(item)));
-      setStatus(ids.length === 1 ? "Deleted component" : `Deleted ${ids.length} components`);
     },
     [mutateActiveWireframe, selectedIds],
   );
@@ -1102,7 +1092,6 @@ function App() {
       const result = duplicateNodesInStack(activeWireframe?.nodes ?? [], sourceIds, createId);
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: result.nodes }));
       selectMany(result.duplicates.map((node) => node.id));
-      setStatus(nodes.length === 1 ? `Duplicated ${nodes[0].name}` : `Duplicated ${nodes.length} components`);
     },
     [activeWireframe?.nodes, mutateActiveWireframe, selectMany, selectedIds],
   );
@@ -1114,7 +1103,6 @@ function App() {
       if (!nodes.length) return;
       setClipboard(nodes);
       writeInternalClipboardMarker(nodes.length);
-      setStatus(nodes.length === 1 ? `Copied ${nodes[0].name}` : `Copied ${nodes.length} components`);
     },
     [activeWireframe?.nodes, selectedIds],
   );
@@ -1127,7 +1115,6 @@ function App() {
       setClipboard(nodes);
       writeInternalClipboardMarker(nodes.length);
       deleteNode(id);
-      setStatus(nodes.length === 1 ? `Cut ${nodes[0].name}` : `Cut ${nodes.length} components`);
     },
     [activeWireframe?.nodes, deleteNode, selectedIds],
   );
@@ -1138,7 +1125,6 @@ function App() {
       const nodes = cloneNodesForPaste(clipboard, createId, x === undefined || y === undefined ? undefined : { x, y });
       mutateActiveWireframe((wireframe) => ({ ...wireframe, nodes: [...wireframe.nodes, ...nodes] }));
       selectMany(nodes.map((node) => node.id));
-      setStatus(nodes.length === 1 ? `Pasted ${nodes[0].name}` : `Pasted ${nodes.length} components`);
       return true;
     },
     [clipboard, mutateActiveWireframe, selectMany],
@@ -1156,7 +1142,6 @@ function App() {
         return;
       }
       if (pasteClipboardNodes(x, y)) return;
-      setStatus("Clipboard is empty");
     },
     [addImageNode, clipboard.length, pasteClipboardNodes],
   );
@@ -1201,7 +1186,6 @@ function App() {
         ...wireframe,
         nodes: wireframe.nodes.map((node) => (locked.has(node.id) ? { ...node, locked: true } : node)),
       }));
-      setStatus(ids.length === 1 ? "Locked component" : `Locked ${ids.length} components`);
     },
     [mutateActiveWireframe, selectedIds],
   );
@@ -1211,14 +1195,12 @@ function App() {
       ...wireframe,
       nodes: wireframe.nodes.map((node) => (node.locked ? { ...node, locked: false } : node)),
     }));
-    setStatus("Unlocked all components");
   }, [mutateActiveWireframe]);
 
   const selectNone = useCallback(() => {
     closeTextEditor(true);
     setSelectedId(null);
     setContextMenu(null);
-    setStatus("Cleared selection");
   }, [closeTextEditor, setSelectedId]);
 
   const selectWireframe = useCallback((wireframeId: string) => {
@@ -1242,7 +1224,6 @@ function App() {
         const previousWireframeId = wireframeNavigationStackRef.current.pop();
         if (previousWireframeId && project.wireframes.some((wireframe) => wireframe.id === previousWireframeId)) {
           selectWireframe(previousWireframeId);
-          setStatus("Went back");
         }
         return;
       }
@@ -1250,7 +1231,6 @@ function App() {
       if (!project.wireframes.some((wireframe) => wireframe.id === link.wireframeId)) return;
       if (project.activeWireframeId) wireframeNavigationStackRef.current.push(project.activeWireframeId);
       selectWireframe(link.wireframeId);
-      setStatus(`Opened ${linkLabel(link, project.wireframes)}`);
     },
     [project.activeWireframeId, project.wireframes, selectWireframe],
   );
@@ -1289,7 +1269,6 @@ function App() {
             filters: [{ name: "Moqira Project", extensions: ["moq", "moqira", "dsmockup", "json"] }],
           });
           if (!chosen) {
-            setStatus(saveAs ? "Save As canceled." : "Save canceled.");
             return false;
           }
           nextPath = chosen;
@@ -1306,7 +1285,6 @@ function App() {
       await writeLastProjectPath(nextPath);
       setRecentProjects((current) => addRecentProject(current, nextPath, projectToSave.name));
       savedProjectSnapshotRef.current = dirtyProjectSnapshot(projectToSave);
-      setStatus(`Saved to ${nextPath}`);
       setSaveToast(`Saved ${fileNameFromPath(nextPath)}`);
       return true;
     },
@@ -1359,7 +1337,6 @@ function App() {
       await writeLastProjectPath(chosen);
       setRecentProjects((current) => addRecentProject(current, chosen, projectName));
       setSelectedId(null);
-      setStatus(`Opened ${projectName}`);
     } finally {
       openingProjectRef.current = false;
       projectDialogOpenRef.current = false;
@@ -1378,7 +1355,6 @@ function App() {
         await writeLastProjectPath(path);
         setRecentProjects((current) => addRecentProject(current, path, projectName));
         setSelectedId(null);
-        setStatus(`Opened ${projectName}`);
       } catch (error) {
         console.warn("Could not open recent project", error);
         setRecentProjects((current) => {
@@ -1386,7 +1362,6 @@ function App() {
           writeRecentProjects(next);
           return next;
         });
-        setStatus(`Could not open ${fileNameFromPath(path)}`);
       }
     },
     [confirmLosingUnsavedChanges, resetProjectHistory, setSelectedId],
@@ -1397,7 +1372,6 @@ function App() {
     resetProjectHistory(createDefaultProject(createId));
     setProjectPath(null);
     setSelectedId(null);
-    setStatus("Created new project");
   }, [confirmLosingUnsavedChanges, resetProjectHistory, setSelectedId]);
 
   const menuActionsRef = useRef<MenuActions>({
@@ -1589,7 +1563,6 @@ function App() {
         const rect = rectFromPoints(selectionRect.startX, selectionRect.startY, selectionRect.currentX, selectionRect.currentY);
         const hits = (activeWireframe?.nodes ?? []).filter((node) => rectContainsNode(rect, node)).map((node) => node.id);
         selectMany(selectionRect.additive ? [...selectedIds, ...hits] : hits);
-        setStatus(hits.length === 1 ? "Selected 1 component" : `Selected ${hits.length} components`);
         suppressCanvasClickRef.current = true;
         window.setTimeout(() => {
           suppressCanvasClickRef.current = false;
@@ -1691,7 +1664,6 @@ function App() {
       }
       if (!modifier && event.key.toLowerCase() === "a" && !isEditingText) {
         arrowKeyDownRef.current = true;
-        if (!event.repeat) setStatus("Hold A and drag on the canvas to draw an arrow");
         return;
       }
       if (modifier && event.key.toLowerCase() === "c" && !isEditingText) {
@@ -1866,7 +1838,6 @@ function App() {
       ...current,
       wireframes: current.wireframes.map((wireframe) => (wireframe.id === wireframeId ? { ...wireframe, name: nextName } : wireframe)),
     }));
-    setStatus(`Renamed wireframe to ${nextName}`);
     return true;
   };
 
@@ -2298,11 +2269,6 @@ function App() {
           </aside>
         )}
       </main>
-
-      <footer className="statusbar">
-        <span>{projectPath ?? "Unsaved project"}</span>
-        <span>{status}</span>
-      </footer>
 
       {contextMenu ? (
         <ContextMenu

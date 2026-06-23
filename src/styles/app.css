@@ -3262,25 +3262,6 @@ html[data-theme="dark"] .component-library::-webkit-scrollbar-thumb {
   width: 16px;
 }
 
-.statusbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 28px;
-  padding: 5px 10px;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.statusbar span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .context-scrim {
   position: fixed;
   inset: 0;
