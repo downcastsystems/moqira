@@ -19,3 +19,7 @@ _Avoid_: component instance, shape, widget
 **Control Catalogue**:
 The set of available wireframe controls that can create canvas nodes.
 _Avoid_: component library, palette
+
+**Canvas Node Behavior**:
+The semantic rules for a canvas node kind: creation defaults, editable fields, option parsing, property capabilities, link targets, and interactive affordances.
+_Avoid_: component metadata, widget config, shape behavior

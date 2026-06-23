@@ -513,6 +513,57 @@ export function nodePropertyCapabilities(node: CanvasNode) {
   };
 }
 
+export type NodePropertyCapabilities = ReturnType<typeof nodePropertyCapabilities>;
+
+export function commonNodePropertyCapabilities(nodes: CanvasNode[]): NodePropertyCapabilities {
+  const capabilities = nodes.map(nodePropertyCapabilities);
+  const every = (key: keyof NodePropertyCapabilities) => capabilities.length > 0 && capabilities.every((item) => item[key]);
+  return {
+    isTextNode: every("isTextNode"),
+    isTabs: every("isTabs"),
+    isAccordion: every("isAccordion"),
+    isAlert: every("isAlert"),
+    isAppBar: every("isAppBar"),
+    isButtonBar: every("isButtonBar"),
+    isDataGrid: every("isDataGrid"),
+    isArrow: every("isArrow"),
+    genericTextStyle: every("genericTextStyle"),
+    showGenericState: every("showGenericState"),
+    showGenericBorder: every("showGenericBorder"),
+    showGenericScrollbar: every("showGenericScrollbar"),
+    showGenericOpacity: every("showGenericOpacity"),
+  };
+}
+
+export function allNodesHaveProperty(nodes: CanvasNode[], property: keyof CanvasNode) {
+  return nodes.length > 0 && nodes.every((node) => property in node);
+}
+
+export function nodesShareTextStyleControls(nodes: CanvasNode[]) {
+  return nodes.length > 0 && nodes.every((node) => {
+    const capabilities = nodePropertyCapabilities(node);
+    return capabilities.isTextNode || capabilities.genericTextStyle;
+  });
+}
+
+export function nodesShareGenericPaintControls(nodes: CanvasNode[]) {
+  return nodes.length > 0 && nodes.every((node) => {
+    const capabilities = nodePropertyCapabilities(node);
+    return !capabilities.isTextNode && !capabilities.isTabs && !capabilities.isAppBar && !capabilities.isArrow;
+  });
+}
+
+export function nodesShareTextColorControl(nodes: CanvasNode[]) {
+  return nodes.length > 0 && nodes.every((node) => {
+    const capabilities = nodePropertyCapabilities(node);
+    return !capabilities.isTabs && !capabilities.isAppBar && !capabilities.isArrow;
+  });
+}
+
+export function hasInteractiveOptions(node: CanvasNode) {
+  return node.kind === "dropdown" || node.kind === "comboBox";
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }

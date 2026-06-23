@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { createCanvasNode, editableTextField, linkableElementsForNode, nodePropertyCapabilities, optionsEditDraft } from "./canvasNodeSemantics";
+import {
+  commonNodePropertyCapabilities,
+  createCanvasNode,
+  editableTextField,
+  hasInteractiveOptions,
+  linkableElementsForNode,
+  nodePropertyCapabilities,
+  nodesShareGenericPaintControls,
+  nodesShareTextStyleControls,
+  optionsEditDraft,
+} from "./canvasNodeSemantics";
 
 describe("canvasNodeSemantics", () => {
   it("creates label components at a compact default font size", () => {
@@ -48,5 +58,23 @@ describe("canvasNodeSemantics", () => {
 
     expect(editableTextField(comboBox)).toBe("options");
     expect(optionsEditDraft(comboBox)).toBe("First\nSecond\nThird");
+  });
+
+  it("describes common property capabilities for multi-selection", () => {
+    const button = createCanvasNode("button", 0, 0, "button");
+    const radio = createCanvasNode("radioButton", 0, 0, "radio");
+    const mixed = commonNodePropertyCapabilities([button, radio]);
+
+    expect(mixed.showGenericState).toBe(true);
+    expect(mixed.genericTextStyle).toBe(true);
+    expect(nodesShareTextStyleControls([button, radio])).toBe(true);
+    expect(nodesShareGenericPaintControls([button, radio])).toBe(true);
+    expect(nodesShareGenericPaintControls([button, createCanvasNode("textLabel", 0, 0, "label")])).toBe(false);
+  });
+
+  it("identifies canvas nodes with interactive options", () => {
+    expect(hasInteractiveOptions(createCanvasNode("dropdown", 0, 0, "dropdown"))).toBe(true);
+    expect(hasInteractiveOptions(createCanvasNode("comboBox", 0, 0, "combo"))).toBe(true);
+    expect(hasInteractiveOptions(createCanvasNode("button", 0, 0, "button"))).toBe(false);
   });
 });

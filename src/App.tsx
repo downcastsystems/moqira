@@ -73,18 +73,24 @@ import {
   type ProjectHistory,
 } from "./lib/projectModel";
 import {
+  allNodesHaveProperty,
   commonComponentRank,
+  commonNodePropertyCapabilities,
   componentCategories,
   componentCategoryNames,
   controlCatalogue,
   createCanvasNode,
   displayNodeName,
   editableTextField,
+  hasInteractiveOptions,
   isMultilineTextNode,
   isTabsNode,
   linkableElementsForNode,
   linkKeyForIndex,
   linkKeyFromLabel,
+  nodesShareGenericPaintControls,
+  nodesShareTextColorControl,
+  nodesShareTextStyleControls,
   nodeOptions,
   nodePercent,
   nodePropertyCapabilities,
@@ -1257,7 +1263,7 @@ function App() {
   );
 
   const toggleInteractiveSelect = useCallback((node: CanvasNode) => {
-    if (node.kind !== "dropdown" && node.kind !== "comboBox") return;
+    if (!hasInteractiveOptions(node)) return;
     setInteractiveSelect((current) => ({
       nodeId: node.id,
       selectedIndex: current?.nodeId === node.id ? current.selectedIndex : null,
@@ -4283,30 +4289,6 @@ function GeometryNumberInput({
   );
 }
 
-function commonNodePropertyCapabilities(nodes: CanvasNode[]) {
-  const capabilities = nodes.map(nodePropertyCapabilities);
-  const every = (key: keyof ReturnType<typeof nodePropertyCapabilities>) => capabilities.length > 0 && capabilities.every((item) => item[key]);
-  return {
-    isTextNode: every("isTextNode"),
-    isTabs: every("isTabs"),
-    isAccordion: every("isAccordion"),
-    isAlert: every("isAlert"),
-    isAppBar: every("isAppBar"),
-    isButtonBar: every("isButtonBar"),
-    isDataGrid: every("isDataGrid"),
-    isArrow: every("isArrow"),
-    genericTextStyle: every("genericTextStyle"),
-    showGenericState: every("showGenericState"),
-    showGenericBorder: every("showGenericBorder"),
-    showGenericScrollbar: every("showGenericScrollbar"),
-    showGenericOpacity: every("showGenericOpacity"),
-  };
-}
-
-function allNodesHaveProperty(nodes: CanvasNode[], property: keyof CanvasNode) {
-  return nodes.length > 0 && nodes.every((node) => property in node);
-}
-
 function PropertiesPane({
   selectedNode,
   selectedNodes,
@@ -4389,26 +4371,14 @@ function PropertiesPane({
     isButtonBar,
     isDataGrid,
     isArrow,
-    genericTextStyle,
     showGenericState,
     showGenericBorder,
     showGenericScrollbar,
     showGenericOpacity,
   } = isMultiSelection ? commonNodePropertyCapabilities(selectionNodes) : nodePropertyCapabilities(selectedNode);
-  const hasTextStyleControls = isMultiSelection
-    ? selectionNodes.every((node) => {
-        const capabilities = nodePropertyCapabilities(node);
-        return capabilities.isTextNode || capabilities.genericTextStyle;
-      })
-    : isTextNode || genericTextStyle;
-  const showGenericPaint = selectionNodes.every((node) => {
-    const capabilities = nodePropertyCapabilities(node);
-    return !capabilities.isTextNode && !capabilities.isTabs && !capabilities.isAppBar && !capabilities.isArrow;
-  });
-  const showTextColor = selectionNodes.every((node) => {
-    const capabilities = nodePropertyCapabilities(node);
-    return !capabilities.isTabs && !capabilities.isAppBar && !capabilities.isArrow;
-  });
+  const hasTextStyleControls = nodesShareTextStyleControls(selectionNodes);
+  const showGenericPaint = nodesShareGenericPaintControls(selectionNodes);
+  const showTextColor = nodesShareTextColorControl(selectionNodes);
   const showChecked = allNodesHaveProperty(selectionNodes, "checked");
   const showValue = !isMultiSelection && allNodesHaveProperty(selectionNodes, "value");
   const showPlaceholder = !isMultiSelection && allNodesHaveProperty(selectionNodes, "placeholder");
@@ -4419,7 +4389,7 @@ function PropertiesPane({
   const textStrikethrough = Boolean(selectedNode.textStrikethrough);
   const genericState = selectedNode.disabled ? "disabled" : "normal";
   const selectedNodeOptions = nodeOptions(selectedNode);
-  const canChooseActiveOption = !isMultiSelection && (selectedNode.kind === "dropdown" || selectedNode.kind === "comboBox") && selectedNodeOptions.length > 0;
+  const canChooseActiveOption = !isMultiSelection && hasInteractiveOptions(selectedNode) && selectedNodeOptions.length > 0;
   const selectedActiveIndex = canChooseActiveOption ? clamp(selectedNode.activeIndex ?? 0, 0, selectedNodeOptions.length - 1) : -1;
   const linkableElements = linkableElementsForNode(selectedNode);
   const changeLink = (key: string, link: CanvasLink | undefined | "new-wireframe" | "duplicate-wireframe") => {
