@@ -1,6 +1,6 @@
 [package]
 name = "moqira"
-version = "0.1.0"
+version = "1.0.0"
 description = "A simple desktop wireframing app."
 authors = ["Downcast Systems"]
 edition = "2021"
