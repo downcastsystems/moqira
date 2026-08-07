@@ -564,13 +564,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function linkLabel(link: CanvasLink | undefined, wireframes: Wireframe[]) {
-  if (!link) return "No Link";
-  if (link.kind === "back") return "Go Back";
-  if (link.kind === "url") return link.url || "Web Address";
-  return wireframes.find((wireframe) => wireframe.id === link.wireframeId)?.name ?? "Missing Wireframe";
-}
-
 function resizeBoundsFromHandle(state: Extract<DragState, { kind: "resize" }>, clientX: number, clientY: number) {
   const minWidth = 28;
   const minHeight = 24;
